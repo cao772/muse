@@ -14,6 +14,7 @@ jobs:
       - run: uv sync --locked --python 3.12
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen python scripts/check_hardware_docs.py
       - run: uv run --frozen pytest -q
       - name: Real WebSocket smoke test
         shell: bash

@@ -2,7 +2,7 @@
 
 本地实体 AI Agent 工程。设备通过 WebSocket 连接 Mac 上的 Gateway；模型和工具集成留在 Gateway 侧，设备不保存云服务密钥。
 
-**当前：Stage 0，可离线模拟设备通信。硬件型号待确认。** 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
+**当前：Stage 0.1，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版，尚未实机验证。** Gateway 保持 Stage 0 的离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
 
 ## 启动
 
@@ -30,7 +30,7 @@ uv run python scripts/simulate_device.py
 ## 目录
 
 ```text
-firmware/esp32/    固件接入说明，等待选板后建立 ESP-IDF 工程
+firmware/esp32/    官方资料锁定、板型说明、到货备份与恢复流程
 gateway/          FastAPI、WebSocket 协议与配置
 integrations/     模型接口、mock 实现与 MCP 接口预留
 scripts/          无硬件设备模拟器
@@ -57,3 +57,9 @@ CI 执行相同检查，并启动真实服务运行设备模拟器。`uv.lock` �
 - 后续：ESP-IDF 固件、屏幕/触控/音频驱动、Wi-Fi/BLE、STT/LLM/TTS、工具调用、GitHub/Dify、设备鉴权。当前不接收音频、不执行工具、不保留聊天历史。
 
 协议见 [docs/protocol.md](docs/protocol.md)，下一阶段见 [project_context/stage-0.md](project_context/stage-0.md)。
+
+## 板子到货后
+
+Stage 0 基线 `163a0ae` 已通过 GitHub CI。按 [到货与恢复手册](firmware/esp32/bringup.md) 执行：识别 USB → 整片 Flash 备份 → 原厂外设测试 → Stage 1 固件准备。
+
+官方规格、版本依据和未确认项见 [板级资料](firmware/esp32/board.md)，阶段顺序见 [Stage 0.1 交接](project_context/stage-0.1.md)。本轮没有新增可烧录固件，先固化资料和恢复路径。

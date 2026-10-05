@@ -1,0 +1,20 @@
+{
+  "board": "ESP32-S3-Touch-AMOLED-1.75C",
+  "verified_on": "2026-10-06",
+  "repository": "https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C",
+  "commit": "6d19f7e16fb9a3be219e9eed43ca9eb56c88d01c",
+  "artifacts": [
+    {
+      "path": "Schematic/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf",
+      "url": "https://raw.githubusercontent.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C/6d19f7e16fb9a3be219e9eed43ca9eb56c88d01c/Schematic/ESP32-S3-Touch-AMOLED-1.75C-schematic.pdf",
+      "bytes": 1848858,
+      "sha256": "7bcc0a3a9dc02893741e1e555b203a17055b5cc9cce3b5c548e160e21683900d"
+    },
+    {
+      "path": "Firmware/ESP32-S3-Touch-AMOLED-1.75C-FactoryOnly-260114.bin",
+      "url": "https://raw.githubusercontent.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C/6d19f7e16fb9a3be219e9eed43ca9eb56c88d01c/Firmware/ESP32-S3-Touch-AMOLED-1.75C-FactoryOnly-260114.bin",
+      "bytes": 33488896,
+      "sha256": "46e65fb708f325f6830d6f14ecbba3d357dbdab6a939e13fdf2206e147c063d2"
+    }
+  ]
+}

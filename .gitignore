@@ -17,3 +17,5 @@ logs/
 firmware/esp32/sdkconfig
 firmware/esp32/sdkconfig.old
 firmware/esp32/managed_components/
+backups/
+firmware/esp32/vendor-downloads/
