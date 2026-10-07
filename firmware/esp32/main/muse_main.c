@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "cJSON.h"
 #include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -13,6 +14,7 @@
 #include "freertos/event_groups.h"
 #include "nvs_flash.h"
 #include "muse_ui.h"
+#include "muse_audio.h"
 
 #define WIFI_READY BIT0
 #define WS_READY BIT1
@@ -49,6 +51,8 @@ static void read_configuration(void)
         .rx_buffer_size = 2048, .tx_buffer_size = 2048,
     };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
+    // Console TX must use the installed driver too; HAL polling races its IRQ.
+    usb_serial_jtag_vfs_use_driver();
     char line[768];
     size_t used = 0;
     bool overflow = false;
@@ -145,11 +149,12 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event, voi
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MUSE_STAGE2_BOOT; USB configuration required after every restart");
+    ESP_LOGI(TAG, "MUSE_STAGE3_BOOT; USB configuration required after every restart");
     state = xEventGroupCreate();
     assert(state);
     muse_ui_start();
     read_configuration();
+    muse_audio_start();
     // Do not erase existing factory NVS automatically on incompatibility.
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());

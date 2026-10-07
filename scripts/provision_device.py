@@ -71,7 +71,10 @@ def provision(port: str, path: Path, timeout: float, observe_seconds: float = 0)
                 r"UI_READY width=\d+ height=\d+|"
                 r"UI_STATE (?:USB setup|Connecting|Connected|Reconnecting|Verifying|"
                 r"Checking heartbeat)|"
-                r"UI_PAGE (?:home|details)|"
+                r"UI_PAGE (?:home|details|audio)|"
+                r"AUDIO_READY rate=\d+ channels=\d+ bits=\d+ gain_db=\d+|"
+                r"AUDIO_STATS L_peak=\d+ L_rms=[\d.]+ L_clip=\d+ "
+                r"R_peak=\d+ R_rms=[\d.]+ R_clip=\d+ equal=\d+/\d+|"
                 r"TOUCH_OK x=\d+ y=\d+ area=(?:top|bottom)-(?:left|right)",
                 line,
             )

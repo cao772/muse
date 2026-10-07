@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "muse_ui.h"
+#include "muse_audio.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_log.h"
@@ -12,6 +13,7 @@ static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static muse_status_t status;
 static int64_t last_pong;
 static char device_name[65] = "muse-01";
+static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
 static const char *previous_title;
 static lv_obj_t *detail_device, *detail_wifi, *detail_gateway, *detail_auth, *detail_heartbeat;
@@ -60,6 +62,17 @@ static void show_details(lv_event_t *event)
     ESP_LOGI("muse_ui", "UI_PAGE details");
 }
 
+static void show_audio(lv_event_t *event)
+{
+    lv_screen_load(audio_page);
+    ESP_LOGI("muse_ui", "UI_PAGE audio");
+}
+
+static void record_audio(lv_event_t *event)
+{
+    if (muse_audio_request_capture(5)) ESP_LOGI("muse_ui", "UI_AUDIO_RECORD_REQUEST");
+}
+
 static void show_home(lv_event_t *event)
 {
     lv_screen_load(home);
@@ -77,7 +90,7 @@ static lv_obj_t *screen(void)
     return obj;
 }
 
-static void button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t action)
+static lv_obj_t *button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t action)
 {
     lv_obj_t *obj = lv_button_create(parent);
     lv_obj_set_size(obj, 172, 42);
@@ -89,6 +102,7 @@ static void button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t acti
     lv_obj_add_event_cb(obj, action, LV_EVENT_CLICKED, NULL);
     lv_obj_t *caption = label(obj, text, 0, 0, &lv_font_montserrat_16, FG);
     lv_obj_center(caption);
+    return obj;
 }
 
 static lv_obj_t *row(lv_obj_t *parent, const char *name, int y)
@@ -133,6 +147,23 @@ static void refresh(lv_timer_t *timer)
     value(detail_gateway, snapshot.gateway ? "Online" : "Offline", snapshot.gateway);
     value(detail_auth, snapshot.authenticated ? "Verified" : "Pending", snapshot.authenticated);
     value(detail_heartbeat, snapshot.heartbeat ? "Healthy / 5s" : "Waiting", snapshot.heartbeat);
+    muse_audio_snapshot_t input;
+    muse_audio_snapshot(&input);
+    for (size_t ch = 0; ch < 2; ++ch) {
+        int meter = (int)(input.stats.rms_dbfs[ch] + 60);
+        if (!input.ready) meter = 0;
+        if (meter < 0) meter = 0;
+        if (meter > 60) meter = 60;
+        lv_bar_set_value(audio_levels[ch], meter, LV_ANIM_OFF);
+        lv_label_set_text_fmt(audio_numbers[ch], "RMS %.1f dBFS   Peak %u",
+                             input.ready ? input.stats.rms_dbfs[ch] : -96.0,
+                             (unsigned)input.stats.peak[ch]);
+    }
+    lv_label_set_text_fmt(audio_clipping, "Clipping L %u / R %u (100ms)",
+                         (unsigned)input.stats.clipped[0], (unsigned)input.stats.clipped[1]);
+    const char *activity = input.failed ? "Input error" : !input.ready ? "Waiting for USB setup" :
+                           input.recording ? "Recording / USB" : input.exporting ? "Exporting / USB" : "Listening";
+    value(audio_state, activity, input.ready && !input.failed);
 }
 
 void muse_ui_start(void)
@@ -166,7 +197,12 @@ void muse_ui_start(void)
     gateway = row(home, "Gateway", 279);
     auth = row(home, "Auth", 311);
     heartbeat = label(home, "Waiting for heartbeat", 0, 348, &lv_font_montserrat_16, MUTED);
-    button(home, "View status", 382, show_details);
+    lv_obj_t *network_button = button(home, "View status", 382, show_details);
+    lv_obj_set_width(network_button, 128);
+    lv_obj_align(network_button, LV_ALIGN_TOP_MID, -70, 382);
+    lv_obj_t *audio_button = button(home, "Audio Input", 382, show_audio);
+    lv_obj_set_width(audio_button, 128);
+    lv_obj_align(audio_button, LV_ALIGN_TOP_MID, 70, 382);
 
     details = screen();
     label(details, "Network", 0, 82, &lv_font_montserrat_24, FG);
@@ -179,6 +215,31 @@ void muse_ui_start(void)
     detail_auth = row(details, "Auth", 275);
     detail_heartbeat = row(details, "Heartbeat", 314);
     button(details, "Back", 382, show_home);
+    audio_page = screen();
+    label(audio_page, "Audio Input", 0, 60, &lv_font_montserrat_24, FG);
+    label(audio_page, "16 kHz / 16 bit / Stereo", 0, 105, &lv_font_montserrat_16, MUTED);
+    for (size_t ch = 0; ch < 2; ++ch) {
+        int y = 148 + ch * 96;
+        label(audio_page, ch ? "Mic R / channel 1" : "Mic L / channel 0", 0, y,
+              &lv_font_montserrat_18, FG);
+        audio_levels[ch] = lv_bar_create(audio_page);
+        lv_obj_set_size(audio_levels[ch], 250, 14);
+        lv_obj_align(audio_levels[ch], LV_ALIGN_TOP_MID, 0, y + 29);
+        lv_bar_set_range(audio_levels[ch], 0, 60);
+        lv_obj_set_style_bg_color(audio_levels[ch], lv_color_hex(0x293E49), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(audio_levels[ch], lv_color_hex(GREEN), LV_PART_INDICATOR);
+        audio_numbers[ch] = label(audio_page, "RMS -96 dBFS   Peak 0", 0, y + 52,
+                                  &lv_font_montserrat_16, MUTED);
+    }
+    audio_clipping = label(audio_page, "Clipping L 0 / R 0 (100ms)", 0, 322,
+                           &lv_font_montserrat_16, MUTED);
+    audio_state = label(audio_page, "Waiting for USB setup", 0, 348, &lv_font_montserrat_16, MUTED);
+    lv_obj_t *record_button = button(audio_page, "Record 5s", 382, record_audio);
+    lv_obj_set_width(record_button, 128);
+    lv_obj_align(record_button, LV_ALIGN_TOP_MID, -70, 382);
+    lv_obj_t *back_button = button(audio_page, "Back", 382, show_home);
+    lv_obj_set_width(back_button, 128);
+    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 70, 382);
     lv_timer_create(refresh, 200, NULL);
     refresh(NULL);
     lv_screen_load(home);

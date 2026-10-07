@@ -1,4 +1,4 @@
-# WebSocket 协议 v1（Stage 0 / Stage 1 / Stage 2）
+# WebSocket 协议 v1（Stage 0 / Stage 1 / Stage 2 / Stage 3）
 
 端点：`ws://127.0.0.1:8000/ws`。UTF-8 JSON 文本帧，每条输入默认最多 16384 字节。
 
@@ -31,4 +31,6 @@ Stage 1 使用可信局域网内的 `ws://`；没有 TLS，不用于公网。真
 
 ## 健康状态
 
-`GET /health` 返回 `{"status":"ok","project_stage":2,"protocol_version":1,"provider":"mock"}`。项目阶段独立于协议版本；Stage 2 移除了旧 `stage` 字段，WebSocket v1 消息结构不变。健康接口表示 Gateway 运行状态，不代表设备已连接或外设验收通过。
+`GET /health` 返回 `{"status":"ok","project_stage":3,"protocol_version":1,"provider":"mock"}`。项目阶段独立于协议版本；Stage 2 移除了旧 `stage` 字段，WebSocket v1 消息结构不变。健康接口表示 Gateway 运行状态，不代表设备已连接或外设验收通过。
+
+Stage 3 的短 PCM 录音只经物理 USB 开发接口导出，不扩展 WebSocket JSON。Gateway 继续拒绝二进制音频帧；音频格式与 USB 边界见 [Stage 3](../project_context/stage-3.md)。
