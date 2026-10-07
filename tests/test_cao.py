@@ -1,7 +1,7 @@
 import asyncio
 
-import httpx2 as httpx
 import pytest
+import httpx2 as httpx
 
 from integrations import cao
 
