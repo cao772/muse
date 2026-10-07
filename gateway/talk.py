@@ -21,8 +21,8 @@ from gateway.config import Settings
 from integrations.cao import CAOClient
 from integrations.chatgpt_plan import ChatGPTPlanProvider
 from integrations.llm import CompatibleProvider, MockProvider
-from integrations.personal_provider import PersonalAgentProvider
 from integrations.local_tts import RUNTIME
+from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
