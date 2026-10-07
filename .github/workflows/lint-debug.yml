@@ -17,4 +17,5 @@ jobs:
       - name: Preview Ruff fixes
         run: |
           uv run --frozen ruff check --fix . || true
+          uv run --frozen ruff format .
           git diff -- integrations/chatgpt_plan.py scripts/chatgpt_signin.py gateway/talk.py tests
