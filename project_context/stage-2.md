@@ -39,7 +39,8 @@ Stage 1 清理：USB driver 局部配置去掉 const，解决 qualifier warning�
 - 真机完成 USB RAM 配置 → Wi-Fi → 鉴权 WebSocket → hello v1 → 连续 3 个不同 ID 的 pong；串口记录 UI_STATE Connecting/Verifying/Connected。
 - 实际停止 Gateway 5 秒后重启：真机日志 UI_STATE Reconnecting → 自动重新握手/匹配 pong → UI_STATE Connected。
 - 真实 Uvicorn 的鉴权模拟器 hello/ping/pong/mock 文本通过；构建产物检查未含本地 Wi-Fi 密码或 token。
-- **待实机人工验收**：屏幕可见内容、清晰度/色彩/圆形裁切、触控坐标方向、View status/Back 点击与四区域触控。不能只以编译和状态日志标记显示/触控通过。
+- **用户实机确认**：界面显示正常，View status 能进入详情，Back 能返回主界面；基本显示与按钮触控通过。
+- **仍未逐项确认**：四区域坐标方向、像素/色彩/圆形边缘的细查，以及 Gateway 重启时用户肉眼观察状态变化。后者目前已有真机 UI_STATE 状态日志，不能替代肉眼确认。
 - GitHub CI 的 Gateway 与固件构建结果以本提交运行记录为准。
 
 ## 使用与实机验收
@@ -59,4 +60,4 @@ uv run python scripts/provision_device.py --port /dev/cu.usbmodem101 --observe-s
 4. 停止 Gateway 至少 5 秒，屏幕应显示 Reconnecting；恢复 Gateway 后返回 Connected，串口继续匹配 pong。
 5. 若黑屏、点击偏移或页面不能切换，保留现象与日志定位，不标记通过。
 
-本轮 AP 丢失/恢复、电池供电、音频仍未验收。下一阶段在显示/触控人工验收后进入 Stage 3 双麦采集。
+本轮 AP 丢失/恢复、电池供电、音频仍未验收。基本显示/按钮触控已通过人工确认；下一阶段可进入 Stage 3 双麦采集，四区域坐标与显示细节检查保留为补充验证。

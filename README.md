@@ -52,9 +52,9 @@ CI 执行相同检查，并启动真实服务运行设备模拟器，还使用 E
 
 ## 已完成与未实现
 
-- 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、AMOLED 状态 UI 与触控页面（人工显示/触控验收待确认）、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
+- 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、AMOLED 状态 UI 与触控页面（用户已确认显示及页面切换正常）、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
 - 预留：DeepSeek / Qwen / OpenAI-compatible 文本 provider、MCP adapter。选择未实现 provider 会在启动时报错，避免静默降级。
-- 后续：显示/触控人工验收、音频驱动、BLE、STT/LLM/TTS、工具调用、GitHub/Dify。当前不接收音频、不执行工具、不保留聊天历史。
+- 后续：四区域触控/显示细节补验、音频驱动、BLE、STT/LLM/TTS、工具调用、GitHub/Dify。当前不接收音频、不执行工具、不保留聊天历史。
 
 协议见 [docs/protocol.md](docs/protocol.md)，当前阶段与实机步骤见 [Stage 2](project_context/stage-2.md)。
 
