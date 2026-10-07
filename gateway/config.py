@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(default=256, ge=1, le=4096)
     stt_provider: Literal["mock", "mlx-whisper"] = "mock"
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
+    cao_enabled: bool = False
+    cao_base_url: str = "http://127.0.0.1:8080"
+    cao_timeout_seconds: float = Field(default=5, ge=0.1, le=30)
 
     @model_validator(mode="after")
     def validate_network_access(self):

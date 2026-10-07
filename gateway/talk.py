@@ -18,6 +18,7 @@ from time import perf_counter
 import serial
 
 from gateway.config import Settings
+from integrations.cao import CAOClient, ProjectAwareProvider
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
 from integrations.resident import ResidentModel
@@ -151,6 +152,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     status("Thinking")
     started = perf_counter()
     answer = await asyncio.wait_for(provider.reply(text), provider_timeout)
+    answer_source = getattr(provider, "last_source", "llm")
     timings["llm_seconds"] = round(perf_counter() - started, 3)
     status("Synthesizing")
     started = perf_counter()
@@ -165,7 +167,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     for pcm in buffers:
         await play(pcm)
     timings["play_seconds"] = round(perf_counter() - started, 3)
-    return {"segments": len(buffers), **timings}
+    return {"segments": len(buffers), "answer_source": answer_source, **timings}
 
 
 async def serve(args):
@@ -182,6 +184,11 @@ async def serve(args):
             raise ValueError("Configure local Whisper and a real LLM in .env, or use --mock")
         stt = ResidentWhisper(settings.stt_model)
         provider = CompatibleProvider(settings, voice_mode=True)
+        if settings.cao_enabled:
+            provider = ProjectAwareProvider(
+                provider,
+                CAOClient(settings.cao_base_url, settings.cao_timeout_seconds),
+            )
         tts = ResidentSerena()
     # Own one USB handle across capture, processing and playback; no competing reader.
     with serial.Serial(
