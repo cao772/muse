@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -11,7 +12,6 @@ import stat
 import time
 import uuid
 import webbrowser
-import datetime as dt
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
