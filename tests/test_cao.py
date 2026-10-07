@@ -3,7 +3,7 @@ import asyncio
 import httpx2 as httpx
 import pytest
 
-from integrations.cao import CAOClient, CAOError, ProjectAwareProvider
+from integrations import cao
 
 
 PROJECTS = [
@@ -43,19 +43,19 @@ def transport(status=200):
 
 
 def test_cao_requires_loopback_http():
-    CAOClient("http://127.0.0.1:8080")
-    CAOClient("http://localhost:8080")
+    cao.CAOClient("http://127.0.0.1:8080")
+    cao.CAOClient("http://localhost:8080")
     with pytest.raises(ValueError):
-        CAOClient("https://127.0.0.1:8080")
+        cao.CAOClient("https://127.0.0.1:8080")
     with pytest.raises(ValueError):
-        CAOClient("http://192.168.1.10:8080")
+        cao.CAOClient("http://192.168.1.10:8080")
     with pytest.raises(ValueError):
-        CAOClient("http://127.0.0.1:8080/api")
+        cao.CAOClient("http://127.0.0.1:8080/api")
 
 
 def test_portfolio_and_specific_project_answers_are_bounded():
     async def check():
-        client = CAOClient("http://127.0.0.1:8080", transport=transport())
+        client = cao.CAOClient("http://127.0.0.1:8080", transport=transport())
         portfolio = await client.answer("Muse，我现在有哪些项目？")
         assert "2个项目" in portfolio
         assert "法规知识库平台" in portfolio
@@ -87,7 +87,7 @@ def test_non_project_query_falls_back_without_calling_cao():
             raise AssertionError("CAO should not be called")
 
     async def check():
-        provider = ProjectAwareProvider(Fallback(), Never())
+        provider = cao.ProjectAwareProvider(Fallback(), Never())
         assert await provider.reply("给我讲个笑话") == "普通回答"
         assert provider.last_source == "llm"
 
@@ -100,8 +100,8 @@ def test_project_query_does_not_leak_cao_error_body():
             raise AssertionError("project query must not fall back to ungrounded LLM")
 
     async def check():
-        client = CAOClient("http://127.0.0.1:8080", transport=transport(503))
-        provider = ProjectAwareProvider(Fallback(), client)
+        client = cao.CAOClient("http://127.0.0.1:8080", transport=transport(503))
+        provider = cao.ProjectAwareProvider(Fallback(), client)
         answer = await provider.reply("法规知识库项目进展怎么样？")
         assert answer == "CAO 项目中枢暂时不可用，请稍后再试。"
         assert "private" not in answer
@@ -115,11 +115,11 @@ def test_invalid_project_payload_is_rejected():
         return httpx.Response(200, json={"unexpected": True})
 
     async def check():
-        client = CAOClient(
+        client = cao.CAOClient(
             "http://127.0.0.1:8080",
             transport=httpx.MockTransport(handler),
         )
-        with pytest.raises(CAOError):
+        with pytest.raises(cao.CAOError):
             await client.list_projects()
 
     asyncio.run(check())
