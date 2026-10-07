@@ -49,11 +49,11 @@ def test_chatgpt_plan_streams_response_with_web_and_reasoning(tmp_path):
             return httpx.Response(
                 200,
                 text=(
-                    'event: response.output_text.delta\n'
+                    "event: response.output_text.delta\n"
                     'data: {"type":"response.output_text.delta","delta":"找到"}\n\n'
-                    'event: response.output_text.delta\n'
+                    "event: response.output_text.delta\n"
                     'data: {"type":"response.output_text.delta","delta":"结果"}\n\n'
-                    'event: response.completed\n'
+                    "event: response.completed\n"
                     'data: {"type":"response.completed","response":{"output":[]}}\n\n'
                 ),
                 headers={"content-type": "text/event-stream"},
