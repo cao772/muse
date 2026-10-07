@@ -25,6 +25,31 @@ def transport(status=200):
             return httpx.Response(status, json={"detail": "private"})
         if request.url.path == "/api/v1/projects":
             return httpx.Response(200, json=PROJECTS)
+        if request.url.path == "/api/v1/personal-agent/summary":
+            return httpx.Response(
+                200,
+                json={
+                    "headline": "有1项需要你处理",
+                    "items": [{"text": "供应商试题需要终审"}],
+                },
+            )
+        if request.url.path == "/api/v1/personal-agent/open-loops":
+            return httpx.Response(
+                200,
+                json={
+                    "count": 3,
+                    "needs_user_count": 1,
+                    "items": [{"text": "受限站点仍需授权"}],
+                },
+            )
+        if request.url.path == "/api/v1/personal-agent/completion/kb-platform":
+            return httpx.Response(
+                200,
+                json={
+                    "verdict": "not_complete",
+                    "unresolved_work_item_count": 2,
+                },
+            )
         if request.url.path == "/api/v1/projects/kb-platform/brief":
             return httpx.Response(
                 200,
@@ -72,6 +97,18 @@ def test_portfolio_and_specific_project_answers_are_bounded():
         risk = await client.answer("法规知识库项目现在有什么风险？")
         assert "账号或授权" in risk
         assert len(risk) <= 120
+
+        recovery = await client.answer("Muse，我刚回来，错过什么了？")
+        assert "有1项需要你处理" in recovery
+        assert "供应商试题需要终审" in recovery
+
+        loops = await client.answer("现在还有哪些事情悬着？")
+        assert "3个未闭环事项" in loops
+        assert "受限站点仍需授权" in loops
+
+        done = await client.answer("法规知识库项目完成了吗？")
+        assert "还不能判定完成" in done
+        assert "未闭环2项" in done
 
     asyncio.run(check())
 
