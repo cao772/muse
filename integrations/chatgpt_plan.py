@@ -259,8 +259,7 @@ class ChatGPTPlanProvider:
             )
         if self.voice_mode:
             instructions += (
-                "回复将由语音朗读，请用自然中文，结论优先，"
-                "尽量控制在100个汉字以内，不用Markdown。"
+                "回复将由语音朗读，请用自然中文，结论优先，尽量控制在100个汉字以内，不用Markdown。"
             )
 
         payload: dict[str, Any] = {
@@ -295,9 +294,7 @@ class ChatGPTPlanProvider:
                     json=payload,
                 )
             if response.status_code != 200:
-                raise ChatGPTPlanError(
-                    f"ChatGPT plan request failed (HTTP {response.status_code})"
-                )
+                raise ChatGPTPlanError(f"ChatGPT plan request failed (HTTP {response.status_code})")
             body = response.text
         except ChatGPTPlanError:
             raise
