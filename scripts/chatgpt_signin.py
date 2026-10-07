@@ -11,7 +11,7 @@ import stat
 import time
 import uuid
 import webbrowser
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -175,7 +175,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write("Muse ChatGPT sign-in finished. You can close this tab.".encode())
+        self.wfile.write(b"Muse ChatGPT sign-in finished. You can close this tab.")
 
 
 def _fetch_json(client: httpx.Client, url: str) -> dict:
@@ -202,7 +202,7 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
     server.timeout = timeout
     redirect_uri = f"http://127.0.0.1:{server.server_port}/auth/callback"
 
-    client_id = str(existing.get("client_id")) if existing and existing.get("client_id") else "dynamic_agent_client"
+    client_id = (\n        str(existing.get("client_id"))\n        if existing and existing.get("client_id")\n        else "dynamic_agent_client"\n    )
     params = {
         "client_id": client_id,
         "ext_agent_host_id": host_id,
@@ -301,12 +301,12 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
         "expires_in": tokens.get("expires_in", 3600),
         "earliest_refresh_at": tokens.get("earliest_refresh_at"),
         "scopes": sorted(scopes),
-        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "saved_at": datetime.now(UTC).isoformat(),
     }
     if not record["access_token"] or not record["refresh_token"]:
         raise SignInError("ChatGPT token response did not include renewable credentials")
     _write_private(credentials_path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
-    print("ChatGPT plan connected for Muse. Credentials were stored locally with owner-only access.")
+    print(\n        "ChatGPT plan connected for Muse. "\n        "Credentials were stored locally with owner-only access."\n    )
 
 
 def main() -> None:
