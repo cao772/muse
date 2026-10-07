@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import stat
-from datetime import UTC, datetime, timedelta
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -20,20 +20,20 @@ class ChatGPTPlanError(RuntimeError):
     """Sanitized ChatGPT plan error; never exposes tokens or upstream bodies."""
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
+def _utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.UTC)
 
 
-def _parse_saved_at(value: Any) -> datetime:
+def _parse_saved_at(value: Any) -> dt.datetime:
     if not isinstance(value, str):
         raise ChatGPTPlanError("ChatGPT plan credentials are invalid")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         raise ChatGPTPlanError("ChatGPT plan credentials are invalid") from None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
 
 
 def _scope_set(value: Any) -> set[str]:
@@ -131,7 +131,7 @@ class ChatGPTPlanProvider:
             expires_in = int(data["expires_in"])
         except (TypeError, ValueError):
             raise ChatGPTPlanError("ChatGPT plan credentials are invalid") from None
-        return _utc_now() >= saved_at + timedelta(seconds=max(60, expires_in - 90))
+        return _utc_now() >= saved_at + dt.timedelta(seconds=max(60, expires_in - 90))
 
     async def _refresh(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
