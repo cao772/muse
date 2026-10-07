@@ -83,6 +83,7 @@ def test_chatgpt_plan_streams_response_with_web_and_reasoning(tmp_path):
     assert payload["stream"] is True
     assert payload["reasoning"] == {"effort": "high"}
     assert payload["tools"] == [{"type": "web_search", "search_context_size": "low"}]
+    assert payload["tool_choice"] == "required"
 
 
 def test_chatgpt_plan_refreshes_rotating_token(tmp_path):
