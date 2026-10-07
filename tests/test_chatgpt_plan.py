@@ -1,7 +1,7 @@
 import asyncio
+import datetime as dt
 import json
 import os
-import datetime as dt
 
 import httpx2 as httpx
 import pytest
