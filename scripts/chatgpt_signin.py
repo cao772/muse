@@ -267,9 +267,7 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
                 },
             )
             if response.status_code != 200:
-                raise SignInError(
-                    f"ChatGPT token exchange failed (HTTP {response.status_code})"
-                )
+                raise SignInError(f"ChatGPT token exchange failed (HTTP {response.status_code})")
             tokens = response.json()
             jwks = _fetch_json(client, JWKS_URL)
     except SignInError:
@@ -310,8 +308,7 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
         raise SignInError("ChatGPT token response did not include renewable credentials")
     _write_private(credentials_path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
     print(
-        "ChatGPT plan connected for Muse. "
-        "Credentials were stored locally with owner-only access."
+        "ChatGPT plan connected for Muse. Credentials were stored locally with owner-only access."
     )
 
 
