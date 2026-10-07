@@ -18,7 +18,6 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx2 as httpx
 
-
 AUTH_BASE = "https://auth.openai.com"
 API_RESOURCE = "https://api.openai.com/v1"
 AUTHORIZE_URL = AUTH_BASE + "/api/accounts/authorize"
