@@ -276,7 +276,7 @@ class ChatGPTPlanProvider:
                     "search_context_size": self.web_context,
                 }
             ]
-            payload["tool_choice"] = "auto"
+            payload["tool_choice"] = "required"
 
         try:
             async with httpx.AsyncClient(
