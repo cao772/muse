@@ -144,7 +144,7 @@ def route_request(
 
     reflection = _contains(text, REFLECTION_MARKERS)
     explicit_gpt = _contains(text, EXPLICIT_GPT_MARKERS)
-    use_web = _contains(text, WEB_MARKERS) or explicit_gpt
+    use_web = _contains(text, WEB_MARKERS)
 
     if explicit_gpt or reflection:
         return RouteDecision(
