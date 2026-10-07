@@ -2,7 +2,7 @@
 
 本地实体 AI Agent 工程。设备通过 WebSocket 连接 Mac 上的 Gateway；模型和工具集成留在 Gateway 侧，设备不保存云服务密钥。
 
-**当前：Stage 4 本地 STT 与真实文本模型，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦采集、5 秒 WAV 导出及人声清晰度已实机确认，详见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。默认 mock 不需要 API Key；真实模型需本地密钥，不依赖 Muse Cloud。`[mock]` 回复只是回显，不是模型推理。
+**当前：Stage 5 本地 TTS 与 ES8311 播放验证，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦采集、5 秒 WAV 导出及人声清晰度已实机确认，详见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。默认 mock 不需要 API Key；真实模型需本地密钥，不依赖 Muse Cloud。`[mock]` 回复只是回显，不是模型推理。
 
 ## 启动
 
@@ -54,7 +54,7 @@ CI 执行相同检查，并启动真实服务运行设备模拟器，还使用 E
 
 - 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、AMOLED 状态 UI 与触控页面（用户已确认显示及页面切换正常）、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
 - 已实现：DeepSeek / OpenAI-compatible 文本 provider、Mac 本地 MLX Whisper STT、有界 WAV → 中文文本 → LLM 文本回复；Qwen 可使用同一兼容接口配置，尚未实测。默认 mock 保持离线。
-- 后续：双麦人声/空间通道验收、音频上传与播放、四区域触控/显示细节补验、BLE、TTS、工具调用、GitHub/Dify。Gateway 当前不接收音频、不执行工具、不保留聊天历史。
+- 后续：双麦人声/空间通道验收、语音交互整合与播放稳定性、四区域触控/显示细节补验、BLE、工具调用、GitHub/Dify。Gateway 当前不接收音频、不执行工具、不保留聊天历史。
 
 协议见 [docs/protocol.md](docs/protocol.md)，当前 Gateway 语音步骤见 [Stage 4](project_context/stage-4.md)，固件实机步骤见 [Stage 3](project_context/stage-3.md)。
 
@@ -79,3 +79,14 @@ uv run --extra stt muse-voice recordings/实际文件名.wav --reply
 ```
 
 第一条处理命令仅本地识别，`--reply` 才发送识别文本到配置的模型。真实模式在本地 `.env` 设置 `MUSE_PROVIDER=deepseek`、`MUSE_LLM_API_KEY`、`MUSE_STT_PROVIDER=mlx-whisper`，其余见 `.env.example`。不修改 ESP32，不自动录音，不上传 WAV，不做 TTS。输出含识别文本和回复，请勿提交到 Git。
+
+## 固定短句 → 板载扬声器
+
+Stage 5 先独立验证播放，不自动连接 LLM 回复：
+
+```sh
+uv run muse-tts
+uv run python scripts/play_audio.py recordings/tts/实际文件名.wav --port /dev/cu.usbmodem101
+```
+
+TTS 使用 Mac 本地 Tingting 语音，不需要新 API key；播放 WAV 为 16kHz/16bit/mono、最多 5 秒。设备经 USB 完整校验后才播放，默认音量 80/100、允许 10–80，结束静音。USB 配置和录音不能同时占用串口。实现、实机状态与验收边界见 [Stage 5](project_context/stage-5.md)。

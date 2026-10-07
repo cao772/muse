@@ -149,7 +149,7 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event, voi
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MUSE_STAGE3_BOOT; USB configuration required after every restart");
+    ESP_LOGI(TAG, "MUSE_STAGE5_BOOT; USB configuration required after every restart");
     state = xEventGroupCreate();
     assert(state);
     muse_ui_start();

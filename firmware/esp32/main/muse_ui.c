@@ -162,7 +162,8 @@ static void refresh(lv_timer_t *timer)
     lv_label_set_text_fmt(audio_clipping, "Clipping L %u / R %u (100ms)",
                          (unsigned)input.stats.clipped[0], (unsigned)input.stats.clipped[1]);
     const char *activity = input.failed ? "Input error" : !input.ready ? "Waiting for USB setup" :
-                           input.recording ? "Recording / USB" : input.exporting ? "Exporting / USB" : "Listening";
+                           input.recording ? "Recording / USB" : input.exporting ? "Exporting / USB" :
+                           input.receiving ? "Receiving / USB" : input.playing ? "Playing / Speaker" : "Listening";
     value(audio_state, activity, input.ready && !input.failed);
 }
 

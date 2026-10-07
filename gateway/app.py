@@ -25,7 +25,7 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
     async def health():
         return {
             "status": "ok",
-            "project_stage": 4,
+            "project_stage": 5,
             "protocol_version": 1,
             "provider": settings.provider,
         }

@@ -20,6 +20,16 @@ static muse_audio_snapshot_t snapshot;
 static unsigned int requested_seconds, pending_ack;
 static bool acknowledged;
 static int16_t pcm[BLOCK_FRAMES * 2];
+static esp_codec_dev_handle_t speaker;
+static TaskHandle_t playback_handle;
+static uint8_t *play_buffer;
+static size_t play_expected, play_used;
+static char play_digest[65];
+static int play_volume = 20;
+static int64_t play_deadline;
+static bool playback_command(cJSON *obj);
+static bool playback_timeout(void);
+static void playback_task(void *arg);
 
 void muse_audio_snapshot(muse_audio_snapshot_t *out)
 {
@@ -42,7 +52,8 @@ bool muse_audio_request_capture(unsigned int seconds)
 {
     portENTER_CRITICAL(&audio_lock);
     bool ok = seconds >= 1 && seconds <= MUSE_AUDIO_MAX_SECONDS && snapshot.ready &&
-              !snapshot.recording && !snapshot.exporting && !requested_seconds;
+              !snapshot.recording && !snapshot.exporting && !snapshot.receiving &&
+              !snapshot.playing && !requested_seconds;
     if (ok) requested_seconds = seconds;
     portEXIT_CRITICAL(&audio_lock);
     return ok;
@@ -50,11 +61,14 @@ bool muse_audio_request_capture(unsigned int seconds)
 
 static void command_task(void *arg)
 {
-    char line[64];
+    char line[1536];
     size_t used = 0;
     bool overflow = false;
     for (;;) {
         char c;
+        if (playback_timeout()) {
+            memset(line, 0, sizeof(line)); used = 0; overflow = false;
+        }
         if (usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(100)) != 1) continue;
         if (c != '\n') {
             if (used < sizeof(line) - 1) line[used++] = c;
@@ -63,6 +77,11 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        if (playback_command(obj)) {
+            cJSON_Delete(obj);
+            memset(line, 0, sizeof(line)); used = 0; overflow = false;
+            continue;
+        }
         cJSON *ack = cJSON_GetObjectItemCaseSensitive(obj, "pcm_ack");
         if (cJSON_IsNumber(ack)) {
             portENTER_CRITICAL(&audio_lock);
@@ -85,14 +104,167 @@ static void command_task(void *arg)
 static bool send_frame(const char *line)
 {
     size_t bytes = strlen(line);
+    char transport[1154];
+    if (bytes + 1 > sizeof(transport)) return false;
+    // Start a fresh line even if console output was partial when the host opened.
+    // The delimiter and frame enter the TX ring in one atomic driver write.
+    transport[0] = '\n';
+    memcpy(transport + 1, line, bytes);
+    bytes++;
     // VFS writes characters and can drop after its short timeout. Send the
     // complete transport frame through the blocking driver, never as log text.
     flockfile(stdout);
     fflush(stdout);
-    int written = usb_serial_jtag_write_bytes(line, bytes, pdMS_TO_TICKS(1000));
+    int written = usb_serial_jtag_write_bytes(transport, bytes, pdMS_TO_TICKS(1000));
     esp_err_t drained = usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));
     funlockfile(stdout);
     return written == bytes && drained == ESP_OK;
+}
+
+static void release_upload(void)
+{
+    if (play_buffer) { memset(play_buffer, 0, play_expected); free(play_buffer); }
+    play_buffer = NULL; play_expected = play_used = 0;
+    memset(play_digest, 0, sizeof(play_digest));
+    portENTER_CRITICAL(&audio_lock);
+    snapshot.receiving = false;
+    portEXIT_CRITICAL(&audio_lock);
+}
+
+static void playback_error(const char *code)
+{
+    char frame[80];
+    snprintf(frame, sizeof(frame), "MUSE_SPK_ERROR code=%s\n", code);
+    send_frame(frame);
+}
+
+static bool playback_timeout(void)
+{
+    muse_audio_snapshot_t current;
+    muse_audio_snapshot(&current);
+    if (current.receiving && esp_timer_get_time() > play_deadline) {
+        release_upload(); playback_error("timeout");
+        return true;
+    }
+    return false;
+}
+
+static bool integer(cJSON *value, int expected)
+{
+    return cJSON_IsNumber(value) && value->valuedouble == expected;
+}
+
+static bool playback_command(cJSON *obj)
+{
+    cJSON *begin = cJSON_GetObjectItemCaseSensitive(obj, "play_begin");
+    cJSON *chunk = cJSON_GetObjectItemCaseSensitive(obj, "play_data");
+    cJSON *end = cJSON_GetObjectItemCaseSensitive(obj, "play_end");
+    cJSON *cancel = cJSON_GetObjectItemCaseSensitive(obj, "play_cancel");
+    if (!begin && !chunk && !end && !cancel) return false;
+    if (begin) {
+        int bytes = cJSON_IsNumber(begin) ? begin->valueint : 0;
+        cJSON *digest = cJSON_GetObjectItemCaseSensitive(obj, "sha256");
+        cJSON *volume = cJSON_GetObjectItemCaseSensitive(obj, "volume");
+        int level = volume && cJSON_IsNumber(volume) ? volume->valueint : 20;
+        bool volume_valid = !volume || (integer(volume, level) && level >= 10 && level <= 80);
+        bool valid = volume_valid && integer(begin, bytes) && bytes > 0 && bytes <= MUSE_AUDIO_RATE * 2 * 5 && bytes % 2 == 0 &&
+                     integer(cJSON_GetObjectItemCaseSensitive(obj, "rate"), MUSE_AUDIO_RATE) &&
+                     integer(cJSON_GetObjectItemCaseSensitive(obj, "channels"), 1) &&
+                     integer(cJSON_GetObjectItemCaseSensitive(obj, "bits"), 16) &&
+                     cJSON_IsString(digest) && strlen(digest->valuestring) == 64;
+        if (valid) {
+            for (int i = 0; i < 64; ++i) {
+                char c = digest->valuestring[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) valid = false;
+            }
+        }
+        if (!valid) { playback_error("format"); return true; }
+        portENTER_CRITICAL(&audio_lock);
+        bool available = snapshot.ready && snapshot.speaker_ready && !snapshot.recording &&
+                         !snapshot.exporting && !snapshot.receiving && !snapshot.playing && !requested_seconds;
+        if (available) snapshot.receiving = true;
+        portEXIT_CRITICAL(&audio_lock);
+        if (!available) { playback_error("busy"); return true; }
+        play_expected = bytes; play_used = 0; play_volume = level;
+        play_buffer = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!play_buffer) { release_upload(); playback_error("memory"); return true; }
+        memcpy(play_digest, digest->valuestring, 65);
+        play_deadline = esp_timer_get_time() + 5000000;
+        char frame[80];
+        snprintf(frame, sizeof(frame), "MUSE_SPK_READY bytes=%u\n", (unsigned)bytes);
+        if (!send_frame(frame)) release_upload();
+        return true;
+    }
+    muse_audio_snapshot_t current;
+    muse_audio_snapshot(&current);
+    if (!current.receiving) { playback_error("state"); return true; }
+    if (cancel) { release_upload(); playback_error("cancelled"); return true; }
+    if (chunk) {
+        cJSON *data = cJSON_GetObjectItemCaseSensitive(obj, "data");
+        unsigned char decoded[768];
+        size_t count = 0;
+        bool valid = integer(chunk, play_used) && cJSON_IsString(data) &&
+                     strlen(data->valuestring) <= 1024 &&
+                     mbedtls_base64_decode(decoded, sizeof(decoded), &count,
+                         (unsigned char *)data->valuestring, strlen(data->valuestring)) == 0 &&
+                     count > 0 && count % 2 == 0 && play_used + count <= play_expected;
+        if (!valid) { release_upload(); playback_error("chunk"); return true; }
+        memcpy(play_buffer + play_used, decoded, count); play_used += count;
+        memset(decoded, 0, sizeof(decoded));
+        play_deadline = esp_timer_get_time() + 5000000;
+        char frame[80];
+        snprintf(frame, sizeof(frame), "MUSE_SPK_ACK offset=%u\n", (unsigned)play_used);
+        if (!send_frame(frame)) release_upload();
+        return true;
+    }
+    unsigned char hash[32]; char hex[65];
+    bool valid = cJSON_IsTrue(end) && play_used == play_expected &&
+                 mbedtls_sha256(play_buffer, play_used, hash, 0) == 0;
+    if (valid) {
+        for (size_t i = 0; i < 32; ++i) snprintf(hex + i * 2, 3, "%02x", hash[i]);
+        valid = memcmp(hex, play_digest, 64) == 0;
+    }
+    if (!valid) { release_upload(); playback_error("hash"); return true; }
+    portENTER_CRITICAL(&audio_lock);
+    snapshot.receiving = false; snapshot.playing = true;
+    portEXIT_CRITICAL(&audio_lock);
+    xTaskNotifyGive(playback_handle);
+    return true;
+}
+
+static void playback_task(void *arg)
+{
+    int16_t output[640];
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        size_t frames = play_expected / 2;
+        int64_t started = esp_timer_get_time();
+        bool ok = esp_codec_dev_set_out_vol(speaker, play_volume) == ESP_CODEC_DEV_OK &&
+                  esp_codec_dev_set_out_mute(speaker, false) == ESP_CODEC_DEV_OK;
+        char playing[64];
+        snprintf(playing, sizeof(playing), "MUSE_SPK_PLAYING volume=%d\n", play_volume);
+        if (ok) send_frame(playing);
+        for (size_t offset = 0; ok && offset < frames; offset += 320) {
+            size_t count = frames - offset < 320 ? frames - offset : 320;
+            const int16_t *mono = (const int16_t *)play_buffer;
+            for (size_t i = 0; i < count; ++i) output[2 * i] = output[2 * i + 1] = mono[offset + i];
+            ok = esp_codec_dev_write(speaker, output, count * 4) == ESP_CODEC_DEV_OK;
+        }
+        // Default IDF DMA holds at most ~90ms at 16kHz; drain before muting.
+        if (ok) vTaskDelay(pdMS_TO_TICKS(120));
+        if (esp_codec_dev_set_out_mute(speaker, true) != ESP_CODEC_DEV_OK) ok = false;
+        char frame[120];
+        snprintf(frame, sizeof(frame), "MUSE_SPK_DONE bytes=%u frames=%u elapsed_ms=%lld\n",
+                 (unsigned)play_expected, (unsigned)frames,
+                 (long long)((esp_timer_get_time() - started) / 1000));
+        memset(output, 0, sizeof(output));
+        release_upload();
+        portENTER_CRITICAL(&audio_lock);
+        snapshot.playing = false;
+        portEXIT_CRITICAL(&audio_lock);
+        if (ok) send_frame(frame);
+        else playback_error("codec");
+    }
 }
 
 static bool export_pcm(const uint8_t *buffer, size_t bytes)
@@ -142,6 +314,17 @@ static void capture_task(void *arg)
         esp_codec_dev_set_in_gain(mic, 24.0f) != ESP_CODEC_DEV_OK) {
         fail(); vTaskDelete(NULL); return;
     }
+    // Open both codecs with identical framing before reads start; BSP owns PA/GPIO.
+    speaker = bsp_audio_codec_speaker_init();
+    bool output_ok = speaker && esp_codec_dev_open(speaker, &format) == ESP_CODEC_DEV_OK &&
+                     esp_codec_dev_set_out_mute(speaker, true) == ESP_CODEC_DEV_OK &&
+                     esp_codec_dev_set_out_vol(speaker, 20) == ESP_CODEC_DEV_OK;
+    if (output_ok) output_ok = xTaskCreate(playback_task, "muse_play", 4096, NULL, 3, &playback_handle) == pdPASS;
+    portENTER_CRITICAL(&audio_lock);
+    snapshot.speaker_ready = output_ok;
+    portEXIT_CRITICAL(&audio_lock);
+    if (output_ok) ESP_LOGI("muse_audio", "SPEAKER_READY rate=16000 slots=2 bits=16 volume=20 muted=1");
+    else ESP_LOGW("muse_audio", "SPEAKER_UNAVAILABLE");
     portENTER_CRITICAL(&audio_lock);
     snapshot.ready = true;
     portEXIT_CRITICAL(&audio_lock);
@@ -209,5 +392,5 @@ void muse_audio_start(void)
     if (xTaskCreate(capture_task, "muse_audio", 8192, NULL, 4, NULL) != pdPASS) {
         fail(); return;
     }
-    if (xTaskCreate(command_task, "muse_audio_cmd", 3072, NULL, 3, NULL) != pdPASS) fail();
+    if (xTaskCreate(command_task, "muse_audio_cmd", 8192, NULL, 3, NULL) != pdPASS) fail();
 }

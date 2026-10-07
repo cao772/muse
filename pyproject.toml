@@ -23,6 +23,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 [project.scripts]
 muse-gateway = "gateway.__main__:main"
 muse-voice = "gateway.voice:main"
+muse-tts = "gateway.tts:main"
 
 [project.optional-dependencies]
 stt = [

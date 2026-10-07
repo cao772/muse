@@ -18,7 +18,7 @@ def test_health(client):
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "project_stage": 4,
+        "project_stage": 5,
         "protocol_version": 1,
         "provider": "mock",
     }
