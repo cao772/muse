@@ -87,7 +87,7 @@ def test_audition_generates_three_private_files(tmp_path, monkeypatch):
     assert len(files) == 3 and all(p.stat().st_mode & 0o777 == 0o600 for p in files)
 
 
-def test_default_cli_retains_tingting(monkeypatch):
+def test_default_cli_selects_offline_qwen(monkeypatch):
     monkeypatch.setattr("sys.argv", ["muse-tts"])
     calls = []
 
@@ -96,4 +96,4 @@ def test_default_cli_retains_tingting(monkeypatch):
 
     monkeypatch.setattr(tts, "generate", generate)
     tts.main()
-    assert calls[0].provider == "mac-say" and calls[0].voice is None
+    assert calls[0].provider == "qwen-local" and calls[0].voice is None

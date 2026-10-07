@@ -31,7 +31,7 @@ async def generate(args):
     voices = (
         CANDIDATES
         if args.audition
-        else (args.voice or (CANDIDATES[0] if args.provider == "qwen-local" else "Tingting"),)
+        else (args.voice or ("Serena" if args.provider == "qwen-local" else "Tingting"),)
     )
     if args.audition and args.provider != "qwen-local":
         raise ValueError("--audition requires --provider qwen-local")
@@ -57,7 +57,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--text")
     parser.add_argument("--voice")
-    parser.add_argument("--provider", choices=("mac-say", "qwen-local"), default="mac-say")
+    parser.add_argument("--provider", choices=("mac-say", "qwen-local"), default="qwen-local")
     parser.add_argument("--audition", action="store_true", help="Generate three Qwen candidates")
     args = parser.parse_args()
     try:
