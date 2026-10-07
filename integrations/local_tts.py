@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from integrations.tts import decode_playback_wav
+from integrations.tts import TTSOutputTooLong, decode_playback_wav
 
 MODEL = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
 REVISION = "049ef77fe8816b536193c0c25f9a214d17921282"
@@ -50,6 +50,10 @@ class LocalQwenTTS:
                 data = path.read_bytes()
                 decode_playback_wav(data)
                 return data
+        except subprocess.CalledProcessError as error:
+            if error.returncode == 2:
+                raise TTSOutputTooLong("Offline TTS output exceeds 5 seconds") from None
+            raise RuntimeError("Offline TTS process failed") from None
         except (OSError, subprocess.SubprocessError, ValueError):
             raise RuntimeError(
                 "Offline TTS failed; check cached model/runtime and 5-second output limit"

@@ -23,7 +23,7 @@ class MockProvider:
 
 
 class CompatibleProvider:
-    def __init__(self, settings: Settings, *, transport=None):
+    def __init__(self, settings: Settings, *, transport=None, voice_mode: bool = False):
         url = urlsplit(settings.llm_base_url)
         if (
             url.scheme != "https"
@@ -45,6 +45,7 @@ class CompatibleProvider:
             raise ValueError("Qwen requires its own explicit base URL and model")
         self.settings = settings
         self.transport = transport
+        self.voice_mode = voice_mode
 
     async def reply(self, text: str) -> str:
         payload = {
@@ -55,6 +56,11 @@ class CompatibleProvider:
                     "content": (
                         "你是 Muse，请用简洁中文回答。你接收的是文本转录，不能直接听到音频；"
                         "不要声称已经检测麦克风或其他硬件状态。"
+                        + (
+                            "这次回复将朗读：只给一句自然口语，优先控制在18个汉字以内，不用Markdown或列表。"
+                            if self.voice_mode
+                            else ""
+                        )
                     ),
                 },
                 {"role": "user", "content": text},

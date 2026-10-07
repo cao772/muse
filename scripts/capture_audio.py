@@ -60,53 +60,70 @@ class PCMTransfer:
         return False
 
 
+class CaptureTimeout(ValueError):
+    pass
+
+
+def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
+    """Receive verified PCM on an already-owned USB connection, without writing a file."""
+    transfer = PCMTransfer(seconds)
+    if wait_button:
+        if seconds != 5:
+            raise ValueError("The screen button records exactly 5 seconds")
+    else:
+        device.write(json.dumps({"capture_seconds": seconds}).encode() + b"\n")
+        device.flush()
+    deadline = time.monotonic() + (180 if wait_button else seconds + 45)
+    buffered = bytearray(getattr(device, "_muse_pending", b""))
+    device._muse_pending = b""
+    while time.monotonic() < deadline:
+        if b"\n" not in buffered:
+            buffered.extend(device.read(min(device.in_waiting or 1, 4096)))
+            if len(buffered) > 8192:
+                raise ValueError("USB line exceeds transport bound")
+            continue
+        raw, _, rest = buffered.partition(b"\n")
+        buffered = bytearray(rest)
+        line = raw.decode(errors="replace").strip()
+        if "AUDIO_EXPORT_ERROR" in line and transfer.digest is None:
+            # A prior receiver may have stopped mid-export; wait for a fresh BEGIN.
+            continue
+        if transfer.digest is None and line.startswith(("MUSE_PCM_DATA ", "MUSE_PCM_END ")):
+            continue
+        if any(
+            marker in line
+            for marker in ("AUDIO_CAPTURE_REJECTED", "AUDIO_ERROR", "AUDIO_EXPORT_ERROR")
+        ):
+            raise ValueError(
+                f"Device stopped capture/export after {len(transfer.pcm)} verified PCM bytes"
+            )
+        # Do not print PCM/base64 or arbitrary device logs.
+        metadata = re.search(r"AUDIO_CAPTURED frames=\d+ elapsed_ms=\d+", line)
+        if metadata:
+            print(metadata.group(0), flush=True)
+        if line.startswith("MUSE_PCM_BEGIN "):
+            deadline = time.monotonic() + 45
+        before = len(transfer.pcm)
+        if transfer.feed(line):
+            device._muse_pending = bytes(buffered)
+            return bytes(transfer.pcm)
+        if len(transfer.pcm) > before:
+            device.write(json.dumps({"pcm_ack": len(transfer.pcm)}).encode() + b"\n")
+            device.flush()
+    else:
+        raise CaptureTimeout("USB recording timed out; no WAV saved")
+
+
 def capture(port: str, seconds: int, directory: Path, wait_button: bool = False) -> Path:
     if not directory.resolve().is_relative_to(RECORDINGS.resolve()):
         raise ValueError("WAV must stay under the project recordings directory (Git ignored)")
-    transfer = PCMTransfer(seconds)
     with serial.Serial(port, 115200, timeout=0.5) as device:
         device.reset_input_buffer()
         if wait_button:
-            if seconds != 5:
-                raise ValueError("The screen button records exactly 5 seconds")
             print(
                 "Receiver ready: tap Audio Input → Record 5s on the board, then speak", flush=True
             )
-        else:
-            device.write(json.dumps({"capture_seconds": seconds}).encode() + b"\n")
-            device.flush()
-        deadline = time.monotonic() + (180 if wait_button else seconds + 45)
-        buffered = bytearray()
-        while time.monotonic() < deadline:
-            if b"\n" not in buffered:
-                buffered.extend(device.read(min(device.in_waiting or 1, 4096)))
-                if len(buffered) > 8192:
-                    raise ValueError("USB line exceeds transport bound")
-                continue
-            raw, _, rest = buffered.partition(b"\n")
-            buffered = bytearray(rest)
-            line = raw.decode(errors="replace").strip()
-            if any(
-                marker in line
-                for marker in ("AUDIO_CAPTURE_REJECTED", "AUDIO_ERROR", "AUDIO_EXPORT_ERROR")
-            ):
-                raise ValueError(
-                    f"Device stopped capture/export after {len(transfer.pcm)} verified PCM bytes"
-                )
-            # Do not print PCM/base64 or arbitrary device logs.
-            metadata = re.search(r"AUDIO_CAPTURED frames=\d+ elapsed_ms=\d+", line)
-            if metadata:
-                print(metadata.group(0), flush=True)
-            if line.startswith("MUSE_PCM_BEGIN "):
-                deadline = time.monotonic() + 45
-            before = len(transfer.pcm)
-            if transfer.feed(line):
-                break
-            if len(transfer.pcm) > before:
-                device.write(json.dumps({"pcm_ack": len(transfer.pcm)}).encode() + b"\n")
-                device.flush()
-        else:
-            raise ValueError("USB recording timed out; no WAV saved")
+        pcm = receive_pcm(device, seconds, wait_button)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)
     name = "muse-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".wav"
@@ -118,7 +135,7 @@ def capture(port: str, seconds: int, directory: Path, wait_button: bool = False)
                 output.setnchannels(2)
                 output.setsampwidth(2)
                 output.setframerate(RATE)
-                output.writeframes(transfer.pcm)
+                output.writeframes(pcm)
     except Exception:
         path.unlink(missing_ok=True)
         raise

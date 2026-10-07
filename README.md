@@ -92,3 +92,7 @@ uv run python scripts/play_audio.py recordings/tts/实际文件名.wav --port /d
 TTS 默认使用 Mac 本地 Qwen3-TTS / Serena 温柔女声，不需要 API Key；Tingting 可通过 `--provider mac-say` 手动备用；播放 WAV 为 16kHz/16bit/mono、最多 5 秒。设备经 USB 完整校验后才播放，默认音量 80/100、允许 10–80，结束静音。USB 配置和录音不能同时占用串口。实现、实机状态与验收边界见 [Stage 5](project_context/stage-5.md)。
 
 新增无需 Key 的 Qwen3-TTS 本地女声试听：`uv run muse-tts --provider qwen-local --audition`。当前 Mac 已下载模型；其他机器先运行 `uv run python scripts/setup_local_tts.py`。用户已选定 Serena 为默认音色；`uv run muse-tts` 直接使用它，板端音量仍为 80。安装、体积、耗时和离线验证见 [离线 TTS](docs/tts-offline.md)。
+
+## Voice MVP 自动闭环
+
+运行 `uv run muse-talk --port /dev/cu.usbmodem101`，看到 Ready 后在屏幕按 Audio Input → Record 5s，说一句话；Mac 自动完成 Whisper → DeepSeek → Serena → USB 扬声器播放。处理期间不要重复按，等重新 Ready 再说下一句。音频不上传、录音不落盘，只有转录文本发给配置的 LLM。详细配置、阶段耗时与已知限制见 [Voice MVP](project_context/voice-mvp.md)。

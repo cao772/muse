@@ -6,7 +6,14 @@ import os
 import sys
 
 from integrations.local_tts import CANDIDATES, MODEL, REVISION
-from integrations.tts import MAX_FRAMES, RATE, decode_playback_wav, encode_wav, limit_output
+from integrations.tts import (
+    MAX_FRAMES,
+    RATE,
+    TTSOutputTooLong,
+    decode_playback_wav,
+    encode_wav,
+    limit_output,
+)
 
 
 def main():
@@ -36,17 +43,15 @@ def main():
         raise ValueError("Incomplete offline TTS output")
     result = results[0]
     audio = np.asarray(result.audio, dtype=np.float32)
-    if (
-        audio.ndim != 1
-        or not np.isfinite(audio).all()
-        or not 0 < len(audio) <= result.sample_rate * 5
-    ):
+    if audio.ndim != 1 or not np.isfinite(audio).all() or not len(audio):
         raise ValueError("Offline TTS output exceeds bound")
+    if len(audio) > result.sample_rate * 5:
+        raise TTSOutputTooLong("Offline TTS output exceeds bound")
     # Qwen emits 24kHz float mono; polyphase low-pass resampling preserves pitch.
     divisor = math.gcd(RATE, result.sample_rate)
     audio = resample_poly(audio, RATE // divisor, result.sample_rate // divisor)
     if not 0 < len(audio) <= MAX_FRAMES:
-        raise ValueError("Resampled output exceeds bound")
+        raise TTSOutputTooLong("Resampled output exceeds bound")
     pcm = np.rint(np.clip(audio, -1, 32767 / 32768) * 32768).astype("<i2").tobytes()
     wav = encode_wav(limit_output(pcm))
     decode_playback_wav(wav)
@@ -57,4 +62,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except TTSOutputTooLong:
+        raise SystemExit(2) from None

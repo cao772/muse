@@ -62,6 +62,10 @@ def limit_output(pcm: bytes) -> bytes:
     return samples.tobytes()
 
 
+class TTSOutputTooLong(ValueError):
+    """Synthesis completed, but exceeded the playback duration bound."""
+
+
 class TTSAdapter(Protocol):
     async def synthesize(self, text: str) -> bytes: ...
 

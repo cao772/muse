@@ -23,6 +23,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 [project.scripts]
 muse-gateway = "gateway.__main__:main"
 muse-voice = "gateway.voice:main"
+muse-talk = "gateway.talk:main"
 muse-tts = "gateway.tts:main"
 
 [project.optional-dependencies]
@@ -31,7 +32,7 @@ stt = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["gateway", "integrations"]
+packages = ["gateway", "integrations", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
