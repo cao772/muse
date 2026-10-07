@@ -3,7 +3,7 @@ import asyncio
 import httpx2 as httpx
 import pytest
 
-from integrations.cao import CAOClient, CAOError, ProjectAwareProvider
+from integrations.cao import (\n    CAOClient,\n    CAOError,\n    ProjectAwareProvider,\n)
 
 
 PROJECTS = [
