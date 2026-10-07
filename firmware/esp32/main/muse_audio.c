@@ -82,14 +82,29 @@ static void command_task(void *arg)
     }
 }
 
+static bool send_frame(const char *line)
+{
+    size_t bytes = strlen(line);
+    // VFS writes characters and can drop after its short timeout. Send the
+    // complete transport frame through the blocking driver, never as log text.
+    flockfile(stdout);
+    fflush(stdout);
+    int written = usb_serial_jtag_write_bytes(line, bytes, pdMS_TO_TICKS(1000));
+    esp_err_t drained = usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));
+    funlockfile(stdout);
+    return written == bytes && drained == ESP_OK;
+}
+
 static bool export_pcm(const uint8_t *buffer, size_t bytes)
 {
     unsigned char hash[32];
     if (mbedtls_sha256(buffer, bytes, hash, 0) != 0) return false;
     char hex[65];
     for (size_t i = 0; i < 32; ++i) snprintf(hex + i * 2, 3, "%02x", hash[i]);
-    printf("MUSE_PCM_BEGIN rate=%d channels=2 bits=16 bytes=%u sha256=%s\n",
-           MUSE_AUDIO_RATE, (unsigned)bytes, hex);
+    char frame[1152];
+    snprintf(frame, sizeof(frame), "MUSE_PCM_BEGIN rate=%d channels=2 bits=16 bytes=%u sha256=%s\n",
+             MUSE_AUDIO_RATE, (unsigned)bytes, hex);
+    if (!send_frame(frame)) return false;
     for (size_t offset = 0; offset < bytes; offset += 768) {
         size_t length = bytes - offset < 768 ? bytes - offset : 768;
         unsigned char encoded[1025];
@@ -100,9 +115,8 @@ static bool export_pcm(const uint8_t *buffer, size_t bytes)
         pending_ack = offset + length;
         acknowledged = false;
         portEXIT_CRITICAL(&audio_lock);
-        // One stdio call per line keeps SDK log lines from splitting a PCM frame.
-        printf("MUSE_PCM_DATA offset=%u data=%.*s\n", (unsigned)offset, (int)written, encoded);
-        fflush(stdout);
+        snprintf(frame, sizeof(frame), "MUSE_PCM_DATA offset=%u data=%.*s\n", (unsigned)offset, (int)written, encoded);
+        if (!send_frame(frame)) return false;
         int64_t deadline = esp_timer_get_time() + 3000000;
         bool received = false;
         do {
@@ -113,9 +127,8 @@ static bool export_pcm(const uint8_t *buffer, size_t bytes)
         } while (!received && esp_timer_get_time() < deadline);
         if (!received) return false;
     }
-    printf("MUSE_PCM_END bytes=%u sha256=%s\n", (unsigned)bytes, hex);
-    fflush(stdout);
-    return true;
+    snprintf(frame, sizeof(frame), "MUSE_PCM_END bytes=%u sha256=%s\n", (unsigned)bytes, hex);
+    return send_frame(frame);
 }
 
 static void capture_task(void *arg)

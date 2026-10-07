@@ -36,8 +36,12 @@ class PCMTransfer:
             self.digest = match[2]
         elif line.startswith("MUSE_PCM_DATA "):
             match = re.fullmatch(r"MUSE_PCM_DATA offset=(\d+) data=([A-Za-z0-9+/=]+)", line)
-            if not match or not self.digest or int(match[1]) != len(self.pcm):
-                raise ValueError("Audio chunk missing, repeated, or out of order")
+            if not match:
+                raise ValueError(f"Malformed audio frame after {len(self.pcm)} PCM bytes")
+            if not self.digest or int(match[1]) != len(self.pcm):
+                raise ValueError(
+                    f"Audio offset mismatch: expected {len(self.pcm)}, received {match[1]}"
+                )
             chunk = base64.b64decode(match[2], validate=True)
             if not chunk or len(chunk) > 768 or len(self.pcm) + len(chunk) > self.expected:
                 raise ValueError("Audio chunk exceeds declared bounds")
