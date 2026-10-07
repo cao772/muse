@@ -325,11 +325,11 @@ class ChatGPTPlanProvider:
             elif event_type == "response.completed":
                 saw_completed = True
                 completed_text = _response_text_from_completed(event)
-            elif event_type in {"response.failed", "error"}:
+            elif event_type in {"response.failed", "response.incomplete", "error"}:
                 raise ChatGPTPlanError("ChatGPT plan request did not complete")
 
         answer = "".join(deltas).strip() or completed_text.strip()
-        if not saw_completed and not answer:
+        if not saw_completed:
             raise ChatGPTPlanError("ChatGPT plan stream ended without a completed response")
         if not answer:
             raise ChatGPTPlanError("ChatGPT plan returned an empty response")
