@@ -1,4 +1,4 @@
-# WebSocket 协议 v1（Stage 0）
+# WebSocket 协议 v1（Stage 0 / Stage 1）
 
 端点：`ws://127.0.0.1:8000/ws`。UTF-8 JSON 文本帧，每条输入默认最多 16384 字节。
 
@@ -20,3 +20,11 @@
 二进制帧以 1003 关闭；超出字节上限以 1009 关闭。客户端应检查关闭码，修正消息后重连。Stage 0 不宣告音频能力；音频格式、分片、背压、取消和 STT/TTS 事件将在后续阶段定义。
 
 实现和测试参考 [FastAPI WebSockets](https://fastapi.tiangolo.com/advanced/websockets/) 与 [Testing WebSockets](https://fastapi.tiangolo.com/advanced/testing-websockets/)。
+
+## Stage 1 局域网连接
+
+非回环监听必须设置至少 32 位 ASCII 无空白设备 token 和明确 `MUSE_ALLOWED_HOSTS` JSON 列表。设备握手带 `Authorization: Bearer <token>` 与 `X-Device-ID: <id>`；缺失或错误在升级前拒绝。无 token 时 WebSocket 还会检查对端是否为本机，不能直接绑定 Uvicorn 绕过。入口关闭代理头信任，请勿启用不可信代理头。
+
+默认拒绝携带 Origin 的浏览器连接，只有 `MUSE_ALLOWED_ORIGINS` 中明确允许的来源可用。默认最多 2 条连接，空闲 30 秒关闭 1008，provider 处理 15 秒超时返回 `provider_error`。连接计数为单进程范围，入口使用单 worker。配置见 `.env.example`。
+
+Stage 1 使用可信局域网内的 `ws://`；没有 TLS，不用于公网。真机只验证 hello/ping/pong，文本 mock 能力仍由模拟器覆盖。

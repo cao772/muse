@@ -99,9 +99,86 @@ def test_configuration(monkeypatch):
         Settings(_env_file=None)
 
 
-def test_entrypoint_rejects_network_exposure(monkeypatch):
+def test_entrypoint_rejects_network_exposure(monkeypatch, tmp_path):
     from gateway.__main__ import main
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MUSE_HOST", "0.0.0.0")
     with pytest.raises(SystemExit, match="loopback"):
         main()
+
+
+def lan_settings(**overrides):
+    return Settings(
+        _env_file=None,
+        host="0.0.0.0",
+        device_token="t" * 40,
+        allowed_hosts=["testserver"],
+        **overrides,
+    )
+
+
+def auth_headers():
+    return {"Authorization": "Bearer " + "t" * 40, "X-Device-ID": "muse-01"}
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"Authorization": "Bearer wrong"}, {**auth_headers(), "X-Device-ID": "wrong"}]
+)
+def test_device_auth_rejects_missing_or_invalid_headers(headers):
+    with TestClient(create_app(lan_settings())) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ws", headers=headers):
+                pass
+
+
+def test_authenticated_device_and_connection_release():
+    with TestClient(create_app(lan_settings(max_connections=1))) as client:
+        for _ in range(2):
+            with client.websocket_connect("/ws", headers=auth_headers()) as socket:
+                assert socket.receive_json()["type"] == "hello"
+                with pytest.raises(WebSocketDisconnect):
+                    with client.websocket_connect("/ws", headers=auth_headers()):
+                        pass
+                socket.send_json({"type": "ping", "id": "1"})
+                assert socket.receive_json() == {"type": "pong", "id": "1"}
+
+
+def test_host_and_origin_rejection():
+    with TestClient(create_app(lan_settings())) as client:
+        assert client.get("/health", headers={"Host": "evil.example"}).status_code == 400
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                "/ws", headers={**auth_headers(), "Origin": "https://evil.example"}
+            ):
+                pass
+
+
+def test_allowed_origin_and_idle_timeout():
+    with TestClient(
+        create_app(lan_settings(allowed_origins=["https://muse.local"], idle_timeout_seconds=0.05))
+    ) as client:
+        with client.websocket_connect(
+            "/ws", headers={**auth_headers(), "Origin": "https://muse.local"}
+        ) as socket:
+            socket.receive_json()
+            with pytest.raises(WebSocketDisconnect) as closed:
+                socket.receive_json()
+            assert closed.value.code == 1008
+
+
+def test_direct_app_cannot_expose_unauthenticated_websocket():
+    with TestClient(create_app(Settings(_env_file=None)), client=("192.168.1.2", 1234)) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ws"):
+                pass
+
+
+def test_lan_configuration_requires_explicit_hosts_and_token():
+    for options in [
+        {"host": "0.0.0.0"},
+        {"host": "0.0.0.0", "device_token": "x" * 40, "allowed_hosts": ["*"]},
+        {"device_token": "short"},
+    ]:
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, **options)

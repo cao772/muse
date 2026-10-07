@@ -4,12 +4,16 @@ from gateway.config import Settings
 
 
 def main():
-    settings = Settings()
-    if settings.host not in {"127.0.0.1", "localhost", "::1"}:
-        raise SystemExit("Stage 0 has no device authentication; use a loopback MUSE_HOST")
+    try:
+        settings = Settings()
+    except ValueError:
+        raise SystemExit(
+            "Invalid configuration: non-loopback access requires device authentication"
+        )
     uvicorn.run(
         "gateway.app:create_app",
         factory=True,
+        proxy_headers=False,
         host=settings.host,
         port=settings.port,
         ws="websockets-sansio",

@@ -1,6 +1,6 @@
 # 到货、备份与恢复手册（Mac）
 
-适用：ESP32-S3-Touch-AMOLED-1.75C 带电池版。以下是待执行流程，**不是实机通过记录**。在仓库根目录操作，先备份再进行任何刷写；初次原厂测试不需要联网或绑定云端。
+适用：ESP32-S3-Touch-AMOLED-1.75C 带电池版。以下为可复用操作流程；本次已执行结果见 [接板记录](../../project_context/hardware-acceptance-2026-10-07.md) 与 [Stage 1](../../project_context/stage-1.md)。在仓库根目录操作，先备份再进行任何刷写；初次原厂测试不需要联网或绑定云端。
 
 ## 1. 识别 USB 与设备
 
@@ -44,6 +44,17 @@ shasum -a 256 "$MUSE_BACKUP_DIR/factory-full.bin" > "$MUSE_BACKUP_DIR/SHA256SUMS
 
 两文件各应为 33554432 字节，`cmp` 应无输出且退出码为 0；不一致时先排查重启造成的写入及通信问题，不刷写。将工具版本、设备标识、容量、日期保存在该备份目录，另复制一份到私有存储。`backups/` 已忽略，备份可能包含 Wi-Fi、配对或其他设备数据，禁止上传仓库。
 
+### 2026-10-07 实机读取兼容性记录
+
+本机使用 esptool 5.1.0 默认 stub 读取时出现芯片停止响应；5.1.0 `--no-stub` 与 4.12.0 stub 分别读取的前 64KiB 逐字节一致。4.12.0 已成功完成两次 32MiB 读取，逐字节一致且 SHA-256 校验通过。本次完整备份使用以下兼容路径（4.x 使用下划线命令名）：
+
+```sh
+uvx --from esptool==4.12.0 esptool.py --chip esp32s3 --port "$MUSE_DEVICE_PORT" --baud 921600 --after no_reset read_flash 0 ALL "$MUSE_BACKUP_DIR/factory-full.bin"
+uvx --from esptool==4.12.0 esptool.py --chip esp32s3 --port "$MUSE_DEVICE_PORT" --baud 921600 --after no_reset read_flash 0 ALL "$MUSE_BACKUP_DIR/factory-check.bin"
+```
+
+仍需执行上面的字节数、`cmp` 和 SHA-256 检查。不要把失败或截断文件当作可恢复备份。参考 [Espressif 类似读取问题](https://github.com/espressif/esptool/issues/1155)；这是备用方案的参考，不能据此断言本机故障根因完全相同。上述备份步骤未改写 Flash 或 eFuse；后续 Stage 1 烧录另见验收记录。
+
 ## 3. 原厂功能核验
 
 备份验证后正常重启，记录屏幕显示、触控各区域、PWR/BOOT、USB 日志、电池充电与脱离 USB 后供电。原厂界面若提供录音/播放，分别验证双麦采集和扬声器；若未提供，标记未测，不以有界面推断音频正常。之后才可用官方示例补测：电源遥测、LVGL 显示触控、频谱采音、ES8311 放音。每次换固件都保留来源版本及结果。
@@ -64,7 +75,7 @@ uvx --from esptool==5.1.0 esptool --chip esp32s3 --port "$MUSE_DEVICE_PORT" --af
 
 官方 CI 的 `*-combined.zip` 是另一类示例固件，不等于出厂镜像。按包内 manifest 核对版本、偏移、大小和校验和；不得混用不同包的 bootloader、分区表和 app。写入成功后重启并重复显示/触控/音频/电源检查，只有这样才能标记“恢复实测通过”。
 
-依据：[Waveshare 烧录说明](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C/Firmware-Flashing)、[官方固件分类](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C/blob/6d19f7e16fb9a3be219e9eed43ca9eb56c88d01c/docs/firmware.md)、[Espressif esptool 命令](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)。本轮仅核对 esptool 5.1.0 命令帮助，未连接设备执行。
+依据：[Waveshare 烧录说明](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75C/Firmware-Flashing)、[官方固件分类](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C/blob/6d19f7e16fb9a3be219e9eed43ca9eb56c88d01c/docs/firmware.md)、[Espressif esptool 命令](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)。恢复写入与恢复后的外设检查尚未实测；备份及 Stage 1 烧录已执行，见对应记录。
 
 ## 5. Stage 1 实机入口
 

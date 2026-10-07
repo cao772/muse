@@ -1,8 +1,11 @@
+import asyncio
 import logging
+import secrets
 from uuid import uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gateway.config import Settings
 from gateway.protocol import Ping, incoming
@@ -15,6 +18,8 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
     settings = settings if settings is not None else Settings()
     provider = provider if provider is not None else create_provider(settings.provider)
     app = FastAPI(title="Muse Gateway", version="0.1.0")
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+    active_connections = 0
 
     @app.get("/health")
     async def health():
@@ -22,8 +27,34 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
 
     @app.websocket("/ws")
     async def device_socket(socket: WebSocket):
-        await socket.accept()
+        nonlocal active_connections
+        origin = socket.headers.get("origin")
+        if origin is not None and origin not in settings.allowed_origins:
+            await socket.close(code=1008)
+            return
+        token = settings.device_token.get_secret_value()
+        if token:
+            identity = socket.headers.get("x-device-id", "")
+            authorization = socket.headers.get("authorization", "")
+            if identity != settings.device_id or not secrets.compare_digest(
+                authorization.encode(), f"Bearer {token}".encode()
+            ):
+                await socket.close(code=1008)
+                return
+        elif socket.client is None or socket.client.host not in {
+            "127.0.0.1",
+            "::1",
+            "testclient",
+        }:
+            # Also enforce loopback when launched directly through Uvicorn.
+            await socket.close(code=1008)
+            return
+        if active_connections >= settings.max_connections:
+            await socket.close(code=1013)
+            return
+        active_connections += 1
         try:
+            await socket.accept()
             await socket.send_json(
                 {
                     "type": "hello",
@@ -34,7 +65,13 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
                 }
             )
             while True:
-                frame = await socket.receive()
+                try:
+                    frame = await asyncio.wait_for(
+                        socket.receive(), timeout=settings.idle_timeout_seconds
+                    )
+                except TimeoutError:
+                    await socket.close(code=1008, reason="Idle timeout")
+                    break
                 if frame["type"] == "websocket.disconnect":
                     break
                 raw = frame.get("text")
@@ -53,7 +90,9 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
                     await socket.send_json({"type": "pong", "id": message.id})
                     continue
                 try:
-                    reply = await provider.reply(message.text)
+                    reply = await asyncio.wait_for(
+                        provider.reply(message.text), timeout=settings.provider_timeout_seconds
+                    )
                 except Exception:
                     # Do not log user content, credentials, or provider exception bodies.
                     logger.warning("Text provider failed")
@@ -68,5 +107,7 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
                 await socket.send_json({"type": "text", "id": message.id, "text": reply})
         except WebSocketDisconnect:
             pass
+        finally:
+            active_connections -= 1
 
     return app
