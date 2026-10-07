@@ -26,8 +26,20 @@ PROJECT_QUERY_MARKERS = (
     "问题",
     "开发到哪",
     "完成了吗",
+    "完成了没",
+    "我刚回来",
+    "错过什么",
+    "需要我处理",
+    "待我确认",
+    "悬着",
+    "未完成的事",
+    "今天最该做",
+    "现在最重要",
 )
 PORTFOLIO_MARKERS = ("有哪些项目", "项目列表", "多少项目", "所有项目", "项目有哪些")
+SUMMARY_MARKERS = ("我刚回来", "错过什么", "需要我处理", "待我确认", "今天最该做", "现在最重要")
+OPEN_LOOP_MARKERS = ("悬着", "未完成的事", "open loops", "开放事项")
+COMPLETION_MARKERS = ("完成了吗", "完成了没", "真的完成", "验收通过了吗")
 
 
 def _normalize(value: str) -> str:
@@ -97,6 +109,26 @@ class CAOClient:
             raise CAOError("CAO project list returned invalid data")
         return projects
 
+    async def personal_summary(self) -> dict[str, Any]:
+        data = await self._get("/api/v1/personal-agent/summary")
+        if not isinstance(data, dict):
+            raise CAOError("CAO personal summary returned invalid data")
+        return data
+
+    async def open_loops(self) -> dict[str, Any]:
+        data = await self._get("/api/v1/personal-agent/open-loops")
+        if not isinstance(data, dict):
+            raise CAOError("CAO open loops returned invalid data")
+        return data
+
+    async def completion(self, project_id: str) -> dict[str, Any]:
+        if not project_id or len(project_id) > 200 or "/" in project_id:
+            raise ValueError("Invalid CAO project id")
+        data = await self._get(f"/api/v1/personal-agent/completion/{project_id}")
+        if not isinstance(data, dict):
+            raise CAOError("CAO completion judge returned invalid data")
+        return data
+
     async def project_brief(self, project_id: str) -> dict[str, Any]:
         if not project_id or len(project_id) > 200 or "/" in project_id:
             raise ValueError("Invalid CAO project id")
@@ -134,6 +166,24 @@ class CAOClient:
     async def answer(self, text: str) -> str | None:
         if not looks_like_project_query(text):
             return None
+
+        lowered = text.lower()
+        if any(marker in lowered for marker in OPEN_LOOP_MARKERS):
+            data = await self.open_loops()
+            count = int(data.get("count") or 0)
+            needs_user = int(data.get("needs_user_count") or 0)
+            items = list(data.get("items") or [])
+            first = _short((items[0] if items else {}).get("text"), 34)
+            tail = f"。最优先：{first}" if first else ""
+            return f"目前有{count}个未闭环事项，其中{needs_user}个需要你处理{tail}。"
+
+        if any(marker in text for marker in SUMMARY_MARKERS):
+            data = await self.personal_summary()
+            headline = _short(data.get("headline") or "当前没有紧急事项", 42)
+            items = list(data.get("items") or [])
+            first = _short((items[0] if items else {}).get("text"), 34)
+            return f"{headline}。" + (f"最优先：{first}。" if first else "")
+
         projects = await self.list_projects()
         if any(marker in text for marker in PORTFOLIO_MARKERS):
             names = [_short(item.get("project_name"), 18) for item in projects[:4]]
@@ -146,8 +196,21 @@ class CAOClient:
         if project is None:
             return "CAO 里没找到对应项目，请说项目全名。"
 
-        brief = await self.project_brief(str(project["project_id"]))
+        project_id = str(project["project_id"])
         name = _short(project.get("project_name"), 18)
+        if any(marker in text for marker in COMPLETION_MARKERS):
+            judgement = await self.completion(project_id)
+            verdict = str(judgement.get("verdict") or "insufficient_evidence")
+            labels = {
+                "tracked_scope_complete": "当前已跟踪范围有正式完成证据",
+                "not_complete": "还不能判定完成",
+                "attention": "存在失败或阻塞，不能判定完成",
+                "insufficient_evidence": "证据不足，不能判定完成",
+            }
+            unresolved = int(judgement.get("unresolved_work_item_count") or 0)
+            return f"{name}：{labels.get(verdict, '还不能判定完成')}，未闭环{unresolved}项。"
+
+        brief = await self.project_brief(project_id)
         recorded = brief.get("recorded_stage") or {}
         stage = _short(recorded.get("stage") or brief.get("current_stage") or "阶段未知", 18)
         in_progress = list(brief.get("in_progress") or [])
