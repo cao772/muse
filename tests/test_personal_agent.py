@@ -74,11 +74,20 @@ def test_personal_provider_does_not_fake_unconnected_actions():
 
     async def check():
         provider = PersonalAgentProvider(Fallback())
-        assert (\n            await provider.reply("让 Codex 帮我改代码")\n            == "Codex 控制还没接通，当前不会假装执行。"\n        )
+        assert (
+            await provider.reply("让 Codex 帮我改代码")
+            == "Codex 控制还没接通，当前不会假装执行。"
+        )
         assert provider.last_source == "codex"
-        assert (\n            await provider.reply("淘宝帮我买个摄像头")\n            == "购物和外卖能力还没接通，当前不会代你下单。"\n        )
+        assert (
+            await provider.reply("淘宝帮我买个摄像头")
+            == "购物和外卖能力还没接通，当前不会代你下单。"
+        )
         assert provider.last_source == "commerce"
-        assert (\n            await provider.reply("用 GPT 认真查一下")\n            == "ChatGPT Plus 研究脑还没连接，请先完成授权。"\n        )
+        assert (
+            await provider.reply("用 GPT 认真查一下")
+            == "ChatGPT Plus 研究脑还没连接，请先完成授权。"
+        )
         assert provider.last_source == "chatgpt"
         assert await provider.reply("讲个笑话") == "fallback"
         assert provider.last_source == "llm"
