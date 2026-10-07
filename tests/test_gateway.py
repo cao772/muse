@@ -18,7 +18,7 @@ def test_health(client):
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "project_stage": 3,
+        "project_stage": 4,
         "protocol_version": 1,
         "provider": "mock",
     }
@@ -91,8 +91,8 @@ def test_provider_failure_is_reported_without_details():
 
 
 @pytest.mark.parametrize("provider", ["deepseek", "qwen", "openai-compatible"])
-def test_unimplemented_providers_fail_explicitly(provider):
-    with pytest.raises(ValueError, match="not implemented"):
+def test_real_providers_require_credentials(provider):
+    with pytest.raises(ValueError, match="MUSE_LLM_API_KEY"):
         create_app(Settings(_env_file=None, provider=provider))
 
 

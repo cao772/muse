@@ -2,7 +2,7 @@
 
 本地实体 AI Agent 工程。设备通过 WebSocket 连接 Mac 上的 Gateway；模型和工具集成留在 Gateway 侧，设备不保存云服务密钥。
 
-**当前：Stage 3 双麦输入验证，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦采集、5 秒 WAV 导出及人声清晰度已实机确认，详见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
+**当前：Stage 4 本地 STT 与真实文本模型，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦采集、5 秒 WAV 导出及人声清晰度已实机确认，详见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。默认 mock 不需要 API Key；真实模型需本地密钥，不依赖 Muse Cloud。`[mock]` 回复只是回显，不是模型推理。
 
 ## 启动
 
@@ -53,10 +53,10 @@ CI 执行相同检查，并启动真实服务运行设备模拟器，还使用 E
 ## 已完成与未实现
 
 - 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、AMOLED 状态 UI 与触控页面（用户已确认显示及页面切换正常）、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
-- 预留：DeepSeek / Qwen / OpenAI-compatible 文本 provider、MCP adapter。选择未实现 provider 会在启动时报错，避免静默降级。
-- 后续：双麦人声/空间通道验收、音频上传与播放、四区域触控/显示细节补验、BLE、STT/LLM/TTS、工具调用、GitHub/Dify。Gateway 当前不接收音频、不执行工具、不保留聊天历史。
+- 已实现：DeepSeek / OpenAI-compatible 文本 provider、Mac 本地 MLX Whisper STT、有界 WAV → 中文文本 → LLM 文本回复；Qwen 可使用同一兼容接口配置，尚未实测。默认 mock 保持离线。
+- 后续：双麦人声/空间通道验收、音频上传与播放、四区域触控/显示细节补验、BLE、TTS、工具调用、GitHub/Dify。Gateway 当前不接收音频、不执行工具、不保留聊天历史。
 
-协议见 [docs/protocol.md](docs/protocol.md)，当前阶段与实机步骤见 [Stage 3](project_context/stage-3.md)。
+协议见 [docs/protocol.md](docs/protocol.md)，当前 Gateway 语音步骤见 [Stage 4](project_context/stage-4.md)，固件实机步骤见 [Stage 3](project_context/stage-3.md)。
 
 ## 板子到货后
 
@@ -67,3 +67,15 @@ Stage 0 基线 `163a0ae` 已通过 GitHub CI。按 [到货与恢复手册](firmw
 ## 双麦输入
 
 首页 Audio Input 显示 16kHz / 16bit / stereo 的 L/R 峰值、RMS 与 clipping。USB 可显式录制 1–5 秒 WAV，保存至忽略目录 `recordings/`；录音不进入 WebSocket JSON、Git 或模型服务。步骤及实测边界见 [Stage 3](project_context/stage-3.md)。
+
+## Mac 单次语音处理
+
+安装本地 STT（Apple Silicon，首次下载模型）：
+
+```sh
+uv sync --extra stt
+uv run --extra stt muse-voice recordings/实际文件名.wav
+uv run --extra stt muse-voice recordings/实际文件名.wav --reply
+```
+
+第一条处理命令仅本地识别，`--reply` 才发送识别文本到配置的模型。真实模式在本地 `.env` 设置 `MUSE_PROVIDER=deepseek`、`MUSE_LLM_API_KEY`、`MUSE_STT_PROVIDER=mlx-whisper`，其余见 `.env.example`。不修改 ESP32，不自动录音，不上传 WAV，不做 TTS。输出含识别文本和回复，请勿提交到 Git。

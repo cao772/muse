@@ -14,13 +14,20 @@ dependencies = [
   "uvicorn>=0.35,<1",
   "websockets>=15,<17",
   "pyserial>=3.5,<4",
+  "httpx2>=2,<3",
 ]
 
 [dependency-groups]
-dev = ["httpx2>=2,<3", "pytest>=8,<10", "ruff>=0.11,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 
 [project.scripts]
 muse-gateway = "gateway.__main__:main"
+muse-voice = "gateway.voice:main"
+
+[project.optional-dependencies]
+stt = [
+    "mlx-whisper>=0.4,<0.5 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["gateway", "integrations"]

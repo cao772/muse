@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None, provider: TextProvider | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()
-    provider = provider if provider is not None else create_provider(settings.provider)
+    provider = provider if provider is not None else create_provider(settings.provider, settings)
     app = FastAPI(title="Muse Gateway", version="0.1.0")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     active_connections = 0
@@ -25,7 +25,7 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
     async def health():
         return {
             "status": "ok",
-            "project_stage": 3,
+            "project_stage": 4,
             "protocol_version": 1,
             "provider": settings.provider,
         }

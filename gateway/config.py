@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     max_connections: int = Field(default=2, ge=1, le=32)
     idle_timeout_seconds: float = Field(default=30, ge=0.05, le=300)
     provider_timeout_seconds: float = Field(default=15, ge=0.05, le=120)
+    llm_api_key: SecretStr = SecretStr("")
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-flash"
+    llm_max_tokens: int = Field(default=256, ge=1, le=4096)
+    stt_provider: Literal["mock", "mlx-whisper"] = "mock"
+    stt_model: str = "mlx-community/whisper-large-v3-turbo"
 
     @model_validator(mode="after")
     def validate_network_access(self):

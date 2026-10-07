@@ -1,7 +1,9 @@
-# 集成扩展
+# Integration boundaries
 
-- `llm.py`：`TextProvider` 接口和 `MockProvider`。DeepSeek、Qwen、OpenAI-compatible 仅保留 provider 名称，尚无网络请求实现。
-- `mcp.py`：`ToolAdapter` 接口，尚无 MCP 客户端或工具执行实现。
-- GitHub、Dify：待具体用例确定后新增 adapter，不提前引入依赖。
+- `llm.py`：`TextProvider`、离线 `MockProvider`、真实 OpenAI-compatible chat completions provider。DeepSeek 使用官方 HTTPS endpoint；Qwen/其他兼容服务须明确配置自己的 base URL、model 和 key。
+- `stt.py`：16kHz/16bit/stereo、最多 5 秒 WAV 校验与单声道转换，`STTAdapter`、显式 mock 和 Mac Apple Silicon 本地 MLX Whisper。没有云音频上传。
+- `mcp.py`：工具接口预留，未启用。
 
-Stage 0 不读取云服务密钥、不调用计费服务。新增真实 provider 时应同时增加超时、错误映射、配置校验与隔离网络的测试。
+默认 mock 不需要网络或 API key；真实 provider 通过本地环境变量或忽略的 `.env` 配置。错误不返回上游正文，禁用自动重定向，设置请求超时。测试使用内存 WAV 和 HTTP MockTransport，不含录音、真实凭据或计费请求。
+
+单次本地语音入口为 `muse-voice`，步骤和能力边界见 [Stage 4](../project_context/stage-4.md)。
