@@ -10,7 +10,6 @@ from typing import Any
 
 import httpx2 as httpx
 
-
 AUTH_BASE = "https://auth.openai.com"
 API_BASE = "https://api.openai.com/v1"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
