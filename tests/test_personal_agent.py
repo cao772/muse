@@ -27,6 +27,13 @@ def test_routes_project_codex_commerce_and_explicit_gpt():
     assert decision.use_web is True
     assert decision.reasoning_effort == "high"
 
+    gpt_only = route_request(
+        "用 GPT 想一下这个架构",
+        chatgpt_enabled=True,
+    )
+    assert gpt_only.source == "chatgpt"
+    assert gpt_only.use_web is False
+
 
 def test_high_difficulty_auto_routes_only_when_enabled():
     text = "这个系统架构怎么设计，综合考虑长期风险、复杂权衡和实现取舍？"
