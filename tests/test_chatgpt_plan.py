@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx2 as httpx
 import pytest
@@ -10,7 +10,7 @@ from integrations.chatgpt_plan import ChatGPTPlanError, ChatGPTPlanProvider
 
 
 def write_credentials(path, *, expired=False):
-    saved_at = datetime.now(timezone.utc)
+    saved_at = datetime.now(UTC)
     if expired:
         saved_at -= timedelta(hours=2)
     payload = {
