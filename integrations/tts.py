@@ -1,4 +1,4 @@
-"""Bounded local macOS TTS; never sends text or audio to a cloud service."""
+"""Playback WAV validation, limiting and local macOS TTS."""
 
 import asyncio
 import io
