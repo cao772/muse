@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ class ChatGPTPlanError(RuntimeError):
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_saved_at(value: Any) -> datetime:
@@ -32,8 +32,8 @@ def _parse_saved_at(value: Any) -> datetime:
     except ValueError:
         raise ChatGPTPlanError("ChatGPT plan credentials are invalid") from None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _scope_set(value: Any) -> set[str]:
@@ -259,7 +259,7 @@ class ChatGPTPlanProvider:
                 "没有就不要硬凑。"
             )
         if self.voice_mode:
-            instructions += "回复将由语音朗读，请用自然中文，结论优先，尽量控制在100个汉字以内，不用Markdown。"
+            instructions += (\n                "回复将由语音朗读，请用自然中文，结论优先，"\n                "尽量控制在100个汉字以内，不用Markdown。"\n            )
 
         payload: dict[str, Any] = {
             "model": model,
