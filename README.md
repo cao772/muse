@@ -96,3 +96,5 @@ TTS 默认使用 Mac 本地 Qwen3-TTS / Serena 温柔女声，不需要 API Key�
 ## Voice MVP 自动闭环
 
 运行 `uv run muse-talk --port /dev/cu.usbmodem101`，看到 Ready 后在屏幕按 Audio Input → Record 5s，说一句话；Mac 自动完成 Whisper → DeepSeek → Serena → USB 扬声器播放。处理期间不要重复按，等重新 Ready 再说下一句。音频不上传、录音不落盘，只有转录文本发给配置的 LLM。详细配置、阶段耗时与已知限制见 [Voice MVP](project_context/voice-mvp.md)。
+
+Voice 体验优化：圆屏显示 Ready / Listening / Thinking / Speaking，忙时禁用录音；Whisper 与 Serena 启动预热并常驻复用。进程故障会终止并在下一轮重载，停止服务后设备显示 Host offline。验证与延迟口径见 [体验优化](project_context/voice-experience.md)。

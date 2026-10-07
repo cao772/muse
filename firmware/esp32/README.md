@@ -23,3 +23,5 @@ uv run python scripts/provision_device.py --port /dev/cu.usbmodem101
 短录音使用 `scripts/capture_audio.py --port /dev/cu.usbmodem101 --seconds 5`，通过 USB 完整校验后保存到 Git 忽略目录。音频不走 WebSocket；运行前关闭其他串口监视器，详细验收见 Stage 3。
 
 固定短句播放：Mac 运行 `uv run muse-tts`，再将生成的 mono WAV 交给 `scripts/play_audio.py`。默认音量 80，设备只接受 10–80、最多 5 秒音频；播放期间麦克风统计继续，显式录音请求与上传/播放互斥。接口和实机结果见 Stage 5。
+
+Voice MVP 体验优化增加主机状态：Ready / Listening / Thinking / Speaking，非 Ready 时禁用 Record 并在录音请求入口拒绝重复触发。USB 状态每 2 秒刷新，15 秒失联显示 Host offline 并锁住录音，恢复 Ready 后解锁。现有网络、触控、音量条、PCM/hash 与音量 80 不变；详见 [体验优化](../../project_context/voice-experience.md)。

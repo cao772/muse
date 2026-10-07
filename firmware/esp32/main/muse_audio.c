@@ -19,6 +19,7 @@ static portMUX_TYPE audio_lock = portMUX_INITIALIZER_UNLOCKED;
 static muse_audio_snapshot_t snapshot;
 static unsigned int requested_seconds, pending_ack;
 static bool acknowledged;
+static int64_t voice_deadline;
 static int16_t pcm[BLOCK_FRAMES * 2];
 static esp_codec_dev_handle_t speaker;
 static TaskHandle_t playback_handle;
@@ -35,6 +36,9 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
 {
     portENTER_CRITICAL(&audio_lock);
     *out = snapshot;
+    if (out->voice_active && esp_timer_get_time() > voice_deadline) {
+        out->voice_ready = false; out->voice_state = "Host offline";
+    }
     portEXIT_CRITICAL(&audio_lock);
 }
 
@@ -53,9 +57,14 @@ bool muse_audio_request_capture(unsigned int seconds)
     portENTER_CRITICAL(&audio_lock);
     bool ok = seconds >= 1 && seconds <= MUSE_AUDIO_MAX_SECONDS && snapshot.ready &&
               !snapshot.recording && !snapshot.exporting && !snapshot.receiving &&
-              !snapshot.playing && !requested_seconds;
-    if (ok) requested_seconds = seconds;
+              !snapshot.playing && !requested_seconds &&
+              (!snapshot.voice_active || (snapshot.voice_ready && esp_timer_get_time() <= voice_deadline));
+    if (ok) {
+        requested_seconds = seconds;
+        if (snapshot.voice_active) { snapshot.voice_ready = false; snapshot.voice_state = "Listening"; }
+    }
     portEXIT_CRITICAL(&audio_lock);
+    if (ok && snapshot.voice_active) ESP_LOGI("muse_audio", "VOICE_STATE Listening");
     return ok;
 }
 
@@ -77,6 +86,29 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        cJSON *voice = cJSON_GetObjectItemCaseSensitive(obj, "voice_state");
+        if (cJSON_IsString(voice)) {
+            const char *state = !strcmp(voice->valuestring, "Ready") ? "Ready" :
+                                !strcmp(voice->valuestring, "Thinking") ? "Thinking" :
+                                !strcmp(voice->valuestring, "Speaking") ? "Speaking" : NULL;
+            if (state) {
+                portENTER_CRITICAL(&audio_lock);
+                bool busy = snapshot.recording || snapshot.exporting || snapshot.receiving ||
+                            snapshot.playing || requested_seconds;
+                bool accepted = strcmp(state, "Ready") || !busy;
+                bool changed = accepted && (!snapshot.voice_state || strcmp(snapshot.voice_state, state));
+                if (accepted) {
+                    snapshot.voice_active = true; snapshot.voice_state = state;
+                    snapshot.voice_ready = !strcmp(state, "Ready");
+                }
+                voice_deadline = esp_timer_get_time() + 15000000;
+                portEXIT_CRITICAL(&audio_lock);
+                if (changed) ESP_LOGI("muse_audio", "VOICE_STATE %s", state);
+            }
+            cJSON_Delete(obj);
+            memset(line, 0, sizeof(line)); used = 0; overflow = false;
+            continue;
+        }
         if (playback_command(obj)) {
             cJSON_Delete(obj);
             memset(line, 0, sizeof(line)); used = 0; overflow = false;

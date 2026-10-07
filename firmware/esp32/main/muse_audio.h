@@ -9,6 +9,8 @@ typedef struct {
     muse_audio_stats_t stats;
     bool ready, failed, recording, exporting;
     bool speaker_ready, receiving, playing;
+    bool voice_active, voice_ready;
+    const char *voice_state;
 } muse_audio_snapshot_t;
 
 void muse_audio_start(void);

@@ -179,7 +179,9 @@ def test_once_owns_single_usb_for_real_capture_and_play_protocol(monkeypatch):
     asyncio.run(talk.serve(argparse.Namespace(port="fake", once=True, mock=True)))
     assert len(instances) == 1
     messages = instances[0].writes
-    assert messages[0] == {"pcm_ack": 768}
+    assert messages[0] == {"voice_state": "Thinking"}
+    assert {"voice_state": "Ready"} in messages
+    assert {"pcm_ack": 768} in messages
     assert {"pcm_ack": 320000} in messages
     assert all(m["volume"] == 80 for m in messages if "play_begin" in m)
     assert any("play_end" in m for m in messages)

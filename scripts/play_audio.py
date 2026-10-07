@@ -37,7 +37,7 @@ def wait_for(device, pattern: str, seconds: float = 5) -> re.Match:
     raise ValueError(f"Playback response timed out: expected {pattern}")
 
 
-def upload(device, pcm: bytes, volume: int = 80) -> dict:
+def upload(device, pcm: bytes, volume: int = 80, on_playing=None) -> dict:
     if not isinstance(volume, int) or isinstance(volume, bool) or not 10 <= volume <= 80:
         raise ValueError("Playback volume must be an integer between 10 and 80")
     if not pcm or len(pcm) > 160000 or len(pcm) % 2:
@@ -68,6 +68,8 @@ def upload(device, pcm: bytes, volume: int = 80) -> dict:
             wait(f"MUSE_SPK_ACK offset={offset + len(chunk)}")
         send({"play_end": True})
         wait(f"MUSE_SPK_PLAYING volume={volume}")
+        if on_playing:
+            on_playing()
         done = wait(r"MUSE_SPK_DONE bytes=(\d+) frames=(\d+) elapsed_ms=(\d+)", 8)
         if int(done[1]) != len(pcm) or int(done[2]) != len(pcm) // 2:
             raise ValueError("Playback completion length mismatch")

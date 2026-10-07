@@ -38,3 +38,7 @@ Stage 3 的短 PCM 录音只经物理 USB 开发接口导出，不扩展 WebSock
 Stage 4 仅在 Mac 单次 CLI 中处理已导出的 WAV；WebSocket v1 不增加音频消息。真实 provider 的 `text` 返回模型回复，mock 仍回显；不保留聊天历史。
 
 Stage 5 播放仍只使用物理 USB：`play_begin` 声明 mono PCM 字节数、16kHz/16bit/1ch 和 SHA-256；`play_data` 携带顺序 offset 与至多 768 字节的 base64 数据，每块 ACK；`play_end:true` 触发长度/hash 校验，成功才播放。音量限制整数 10–80，Mac 默认 80；上限 160000 PCM 字节（5 秒），5 秒上传无进展则清零/释放，`play_cancel:true` 可取消未播放的上传。播放开始后至多 5 秒，结束静音并释放，不实现播放中途取消。USB 不做设备 token 鉴权，不用于远程开放。详情见 [Stage 5](../project_context/stage-5.md)。
+
+### Voice 状态元数据（USB）
+
+`{"voice_state":"Ready"}` 支持 Ready / Thinking / Speaking；Listening 由固件接受一次录音产生。主机每 2 秒刷新，15 秒过期后禁用录音。采集/导出/上传/播放中 Ready 不解锁按钮；其他非 Ready 状态始终拒绝新录音。原有 PCM offset / ACK / SHA-256 和音量 80 规则不变。

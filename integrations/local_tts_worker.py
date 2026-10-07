@@ -16,19 +16,21 @@ from integrations.tts import (
 )
 
 
-def main():
-    import mlx.core as mx
-    import numpy as np
+def load():
     from huggingface_hub import snapshot_download
     from mlx_audio.tts.utils import load_model
+
+    local = snapshot_download(MODEL, revision=REVISION, local_files_only=True)
+    return load_model(local)
+
+
+def synthesize(model, text, voice):
+    import mlx.core as mx
+    import numpy as np
     from scipy.signal import resample_poly
 
-    request = json.loads(sys.stdin.buffer.read(4096))
-    text, voice = request["text"], request["voice"]
     if voice not in CANDIDATES or not text.strip() or len(text) > 80 or "\0" in text:
         raise ValueError("Invalid offline TTS request")
-    local = snapshot_download(MODEL, revision=REVISION, local_files_only=True)
-    model = load_model(local)
     mx.random.seed(0)
     results = list(
         model.generate_custom_voice(
@@ -55,6 +57,31 @@ def main():
     pcm = np.rint(np.clip(audio, -1, 32767 / 32768) * 32768).astype("<i2").tobytes()
     wav = encode_wav(limit_output(pcm))
     decode_playback_wav(wav)
+    return wav
+
+
+def main():
+    if "--resident" in sys.argv:
+        import base64
+
+        from integrations.model_worker import run
+
+        def preload():
+            model = load()
+            synthesize(model, "你好。", "Serena")
+            return model
+
+        run(
+            preload,
+            lambda model, request: {
+                "wav": base64.b64encode(
+                    synthesize(model, request["text"], request["voice"])
+                ).decode()
+            },
+        )
+        return
+    request = json.loads(sys.stdin.buffer.read(4096))
+    wav = synthesize(load(), request["text"], request["voice"])
     with os.fdopen(
         os.open(request["output"], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
     ) as output:

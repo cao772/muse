@@ -2,12 +2,14 @@
 
 import argparse
 import asyncio
+import base64
 import io
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import wave
 from array import array
 from pathlib import Path
@@ -17,7 +19,8 @@ import serial
 
 from gateway.config import Settings
 from integrations.llm import CompatibleProvider, MockProvider
-from integrations.local_tts import LocalQwenTTS
+from integrations.local_tts import RUNTIME
+from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
 from scripts.capture_audio import CaptureTimeout, receive_pcm
@@ -63,6 +66,46 @@ class ProcessWhisper:
 
     async def transcribe(self, wav):
         return await asyncio.to_thread(self._transcribe, wav)
+
+
+class ResidentWhisper:
+    def __init__(self, model):
+        self.worker = ResidentModel(
+            [sys.executable, "-m", "gateway.talk_stt_worker", model, "--resident"]
+        )
+
+    async def transcribe(self, wav):
+        response = await self.worker.request({"wav": base64.b64encode(wav).decode()})
+        text = response.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > 500:
+            raise RuntimeError("Invalid transcript")
+        return text.strip()
+
+
+class ResidentSerena:
+    def __init__(self):
+        self.worker = ResidentModel(
+            [str(RUNTIME), "-m", "integrations.local_tts_worker", "--resident"], 180
+        )
+
+    async def synthesize(self, text):
+        response = await self.worker.request({"text": text, "voice": "Serena"})
+        data = base64.b64decode(response["wav"], validate=True)
+        decode_playback_wav(data)
+        return data
+
+
+class SharedUSB:
+    def __init__(self, device):
+        self.device = device
+        self.lock = threading.Lock()
+
+    def __getattr__(self, name):
+        return getattr(self.device, name)
+
+    def write(self, data):
+        with self.lock:
+            return self.device.write(data)
 
 
 def speech_chunks(answer):
@@ -137,16 +180,29 @@ async def serve(args):
     else:
         if settings.stt_provider != "mlx-whisper" or settings.provider == "mock":
             raise ValueError("Configure local Whisper and a real LLM in .env, or use --mock")
-        stt = ProcessWhisper(settings.stt_model)
+        stt = ResidentWhisper(settings.stt_model)
         provider = CompatibleProvider(settings, voice_mode=True)
-        tts = LocalQwenTTS("Serena")
+        tts = ResidentSerena()
     # Own one USB handle across capture, processing and playback; no competing reader.
-    with serial.Serial(args.port, 115200, timeout=0.5, write_timeout=5, exclusive=True) as device:
+    with serial.Serial(
+        args.port, 115200, timeout=0.5, write_timeout=5, exclusive=True
+    ) as raw_device:
+        device = SharedUSB(raw_device)
         device.reset_input_buffer()
 
         async def play(pcm):
             try:
-                return await asyncio.to_thread(upload, device, pcm, 80)
+                return await asyncio.to_thread(
+                    upload,
+                    device,
+                    pcm,
+                    80,
+                    lambda: (
+                        setattr(device, "_muse_first_audio", perf_counter())
+                        if not getattr(device, "_muse_first_audio", None)
+                        else None
+                    ),
+                )
             except ValueError as error:
                 message = str(error)
                 rejected = re.fullmatch(r"Device rejected playback \(([a-z_]{1,24})\)", message)
@@ -162,47 +218,96 @@ async def serve(args):
                 print(f"USB playback failed: {code}", flush=True)
                 raise
 
-        while True:
+        state = ["Thinking"]
+
+        def send_state(value=None):
+            with device.lock:
+                if value is not None:
+                    state[0] = value
+                device.device.write(json.dumps({"voice_state": state[0]}).encode() + b"\n")
+
+        async def heartbeat():
+            while True:
+                await asyncio.to_thread(send_state)
+                await asyncio.sleep(2)
+
+        task = asyncio.create_task(heartbeat())
+        try:
+            send_state("Thinking")
+            if not args.mock:
+                print("Preloading Whisper / Serena", flush=True)
+                await stt.worker.start()
+                await tts.worker.start()
+            await conversation(args, device, stt, provider, tts, play, settings, send_state)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            if not args.mock:
+                await stt.worker.close()
+                await tts.worker.close()
+
+
+async def conversation(args, device, stt, provider, tts, play, settings, send_state):
+    turn = 0
+    while True:
+        send_state("Ready")
+        print(
+            "Ready: tap Audio Input → Record 5s, speak; wait until Ready before pressing again",
+            flush=True,
+        )
+        phase = "Receiving"
+
+        def status(state):
+            nonlocal phase
+            phase = state
+            send_state("Speaking" if state == "Playing" else "Thinking")
+            print(state, flush=True)
+
+        try:
+            device._muse_first_audio = None
+            device._muse_capture_started = None
+            pcm = await asyncio.to_thread(receive_pcm, device, 5, True)
+            recorded = perf_counter()
+            result = await respond(
+                input_wav(pcm),
+                stt,
+                provider,
+                tts,
+                play,
+                settings.provider_timeout_seconds,
+                status=status,
+            )
+            turn += 1
+            result["turn"] = turn
+            result["after_receive_seconds"] = round(perf_counter() - recorded, 3)
+            capture_started = getattr(device, "_muse_capture_started", None)
+            first_audio = getattr(device, "_muse_first_audio", None)
+            if first_audio:
+                result["first_audio_after_receive_seconds"] = round(first_audio - recorded, 3)
+            if capture_started:
+                result["turn_seconds"] = round(perf_counter() - capture_started, 3)
+                result["capture_export_seconds"] = round(recorded - capture_started, 3)
+                if first_audio:
+                    result["first_audio_from_button_seconds"] = round(
+                        first_audio - capture_started, 3
+                    )
+            print("Done: " + json.dumps(result), flush=True)
+        except CaptureTimeout:
+            if args.once:
+                raise
+            continue
+        except (ValueError, RuntimeError, TimeoutError, OSError, serial.SerialException):
+            # Never print upstream bodies, arbitrary serial logs, transcript or reply.
             print(
-                "Ready: tap Audio Input → Record 5s, speak; wait until Ready before pressing again",
+                f"Turn failed during {phase}: "
+                "check speech, USB, local models or LLM; no automatic replay",
                 flush=True,
             )
-            phase = "Receiving"
-
-            def status(state):
-                nonlocal phase
-                phase = state
-                print(state, flush=True)
-
-            try:
-                pcm = await asyncio.to_thread(receive_pcm, device, 5, True)
-                recorded = perf_counter()
-                result = await respond(
-                    input_wav(pcm),
-                    stt,
-                    provider,
-                    tts,
-                    play,
-                    settings.provider_timeout_seconds,
-                    status=status,
-                )
-                result["after_receive_seconds"] = round(perf_counter() - recorded, 3)
-                print("Done: " + json.dumps(result), flush=True)
-            except CaptureTimeout:
-                if args.once:
-                    raise
-                continue
-            except (ValueError, RuntimeError, TimeoutError, OSError, serial.SerialException):
-                # Never print upstream bodies, arbitrary serial logs, transcript or reply.
-                print(
-                    f"Turn failed during {phase}: "
-                    "check speech, USB, local models or LLM; no automatic replay",
-                    flush=True,
-                )
-                if args.once:
-                    raise RuntimeError("Voice MVP turn failed") from None
             if args.once:
-                return
+                raise RuntimeError("Voice MVP turn failed") from None
+        send_state("Ready")
+        if args.once:
+            return
 
 
 def main():

@@ -97,6 +97,11 @@ def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
             raise ValueError(
                 f"Device stopped capture/export after {len(transfer.pcm)} verified PCM bytes"
             )
+        if "UI_AUDIO_RECORD_REQUEST" in line:
+            device._muse_capture_started = time.monotonic()
+        state = re.search(r"VOICE_STATE (Ready|Listening|Thinking|Speaking)$", line)
+        if state:
+            print("Device: " + state[1], flush=True)
         # Do not print PCM/base64 or arbitrary device logs.
         metadata = re.search(r"AUDIO_CAPTURED frames=\d+ elapsed_ms=\d+", line)
         if metadata:
