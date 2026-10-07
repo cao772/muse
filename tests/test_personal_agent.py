@@ -5,18 +5,27 @@ from integrations.personal_provider import PersonalAgentProvider
 
 
 def test_routes_project_codex_commerce_and_explicit_gpt():
-    assert route_request(
-        "法规知识库项目开发到哪了？",
-        chatgpt_enabled=True,
-    ).source == "cao"
-    assert route_request(
-        "让 Codex 继续开发法规项目",
-        chatgpt_enabled=True,
-    ).source == "codex"
-    assert route_request(
-        "帮我去淘宝看看摄像头",
-        chatgpt_enabled=True,
-    ).source == "commerce"
+    assert (
+        route_request(
+            "法规知识库项目开发到哪了？",
+            chatgpt_enabled=True,
+        ).source
+        == "cao"
+    )
+    assert (
+        route_request(
+            "让 Codex 继续开发法规项目",
+            chatgpt_enabled=True,
+        ).source
+        == "codex"
+    )
+    assert (
+        route_request(
+            "帮我去淘宝看看摄像头",
+            chatgpt_enabled=True,
+        ).source
+        == "commerce"
+    )
 
     decision = route_request(
         "用 GPT 认真查一下网上有没有类似案例",
@@ -75,13 +84,11 @@ def test_personal_provider_does_not_fake_unconnected_actions():
     async def check():
         provider = PersonalAgentProvider(Fallback())
         assert (
-            await provider.reply("让 Codex 帮我改代码")
-            == "Codex 控制还没接通，当前不会假装执行。"
+            await provider.reply("让 Codex 帮我改代码") == "Codex 控制还没接通，当前不会假装执行。"
         )
         assert provider.last_source == "codex"
         assert (
-            await provider.reply("淘宝帮我买个摄像头")
-            == "购物和外卖能力还没接通，当前不会代你下单。"
+            await provider.reply("淘宝帮我买个摄像头") == "购物和外卖能力还没接通，当前不会代你下单。"
         )
         assert provider.last_source == "commerce"
         assert (
