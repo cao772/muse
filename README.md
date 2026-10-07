@@ -2,7 +2,7 @@
 
 本地实体 AI Agent 工程。设备通过 WebSocket 连接 Mac 上的 Gateway；模型和工具集成留在 Gateway 侧，设备不保存云服务密钥。
 
-**当前：Stage 3 双麦输入验证，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦验证与短录音见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
+**当前：Stage 3 双麦输入验证，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/基本触控已实机确认，双麦采集、5 秒 WAV 导出及人声清晰度已实机确认，详见 [Stage 3 记录](project_context/stage-3.md)。Gateway 保留离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
 
 ## 启动
 
