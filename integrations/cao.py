@@ -138,7 +138,9 @@ class CAOClient:
         if any(marker in text for marker in PORTFOLIO_MARKERS):
             names = [_short(item.get("project_name"), 18) for item in projects[:4]]
             tail = "、".join(name for name in names if name)
-            if tail:\n                return f"CAO 当前登记{len(projects)}个项目。最近包括：{tail}。"\n            return f"CAO 当前登记{len(projects)}个项目。"
+            if tail:
+                return f"CAO 当前登记{len(projects)}个项目。最近包括：{tail}。"
+            return f"CAO 当前登记{len(projects)}个项目。"
 
         project = self.resolve_project(text, projects)
         if project is None:
