@@ -30,6 +30,16 @@ class PersonalAgentProvider:
         self.last_route_reason = "startup"
         self.last_route: dict[str, Any] = {}
 
+    def timeout_seconds(self, text: str, default: float) -> float:
+        decision = route_request(
+            text,
+            chatgpt_enabled=self.chatgpt is not None,
+            chatgpt_auto_enabled=self.chatgpt_auto_enabled,
+        )
+        if decision.source == "chatgpt" and self.chatgpt is not None:
+            return max(default, float(getattr(self.chatgpt, "timeout_seconds", default)) + 5)
+        return default
+
     async def reply(self, text: str) -> str:
         decision = route_request(
             text,
