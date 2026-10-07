@@ -1,10 +1,9 @@
 import asyncio
 
-import pytest
 import httpx2 as httpx
+import pytest
 
 from integrations import cao
-
 
 PROJECTS = [
     {
