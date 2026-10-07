@@ -259,7 +259,10 @@ class ChatGPTPlanProvider:
                 "没有就不要硬凑。"
             )
         if self.voice_mode:
-            instructions += (\n                "回复将由语音朗读，请用自然中文，结论优先，"\n                "尽量控制在100个汉字以内，不用Markdown。"\n            )
+            instructions += (
+                "回复将由语音朗读，请用自然中文，结论优先，"
+                "尽量控制在100个汉字以内，不用Markdown。"
+            )
 
         payload: dict[str, Any] = {
             "model": model,
