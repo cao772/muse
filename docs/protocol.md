@@ -1,4 +1,4 @@
-# WebSocket 协议 v1（Stage 0 / Stage 1）
+# WebSocket 协议 v1（Stage 0 / Stage 1 / Stage 2）
 
 端点：`ws://127.0.0.1:8000/ws`。UTF-8 JSON 文本帧，每条输入默认最多 16384 字节。
 
@@ -28,3 +28,7 @@
 默认拒绝携带 Origin 的浏览器连接，只有 `MUSE_ALLOWED_ORIGINS` 中明确允许的来源可用。默认最多 2 条连接，空闲 30 秒关闭 1008，provider 处理 15 秒超时返回 `provider_error`。连接计数为单进程范围，入口使用单 worker。配置见 `.env.example`。
 
 Stage 1 使用可信局域网内的 `ws://`；没有 TLS，不用于公网。真机只验证 hello/ping/pong，文本 mock 能力仍由模拟器覆盖。
+
+## 健康状态
+
+`GET /health` 返回 `{"status":"ok","project_stage":2,"protocol_version":1,"provider":"mock"}`。项目阶段独立于协议版本；Stage 2 移除了旧 `stage` 字段，WebSocket v1 消息结构不变。健康接口表示 Gateway 运行状态，不代表设备已连接或外设验收通过。

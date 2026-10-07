@@ -23,7 +23,12 @@ def create_app(settings: Settings | None = None, provider: TextProvider | None =
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "stage": 0, "provider": settings.provider}
+        return {
+            "status": "ok",
+            "project_stage": 2,
+            "protocol_version": 1,
+            "provider": settings.provider,
+        }
 
     @app.websocket("/ws")
     async def device_socket(socket: WebSocket):

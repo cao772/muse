@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "nvs_flash.h"
+#include "muse_ui.h"
 
 #define WIFI_READY BIT0
 #define WS_READY BIT1
@@ -44,7 +45,7 @@ static bool safe_header(const char *text)
 
 static void read_configuration(void)
 {
-    const usb_serial_jtag_driver_config_t usb = {
+    usb_serial_jtag_driver_config_t usb = {
         .rx_buffer_size = 2048, .tx_buffer_size = 2048,
     };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
@@ -76,6 +77,8 @@ static void read_configuration(void)
         cJSON_Delete(obj);
         memset(line, 0, sizeof(line)); used = 0; overflow = false;
         if (ok) {
+            muse_ui_set_device_id(device_id);
+            muse_ui_update(MUSE_CONFIGURED);
             ESP_LOGI(TAG, "MUSE_CONFIG_OK (RAM only)");
             return;
         }
@@ -89,9 +92,11 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t event, void *da
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && event == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(state, WIFI_READY | HELLO_READY | PONG_READY);
+        muse_ui_update(MUSE_WIFI_DOWN);
         ESP_LOGW(TAG, "WIFI_DISCONNECTED; retrying");
         esp_wifi_connect();
     } else if (base == IP_EVENT && event == IP_EVENT_STA_GOT_IP) {
+        muse_ui_update(MUSE_WIFI_UP);
         ESP_LOGI(TAG, "WIFI_GOT_IP");
         xEventGroupSetBits(state, WIFI_READY);
     }
@@ -103,12 +108,14 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event, voi
     if (event == WEBSOCKET_EVENT_CONNECTED) {
         xEventGroupClearBits(state, HELLO_READY | PONG_READY);
         xEventGroupSetBits(state, WS_READY);
+        muse_ui_update(MUSE_WS_UP);
         ESP_LOGI(TAG, "WS_CONNECTED");
     } else if (event == WEBSOCKET_EVENT_DISCONNECTED) {
         xEventGroupClearBits(state, WS_READY | HELLO_READY | PONG_READY);
+        muse_ui_update(MUSE_WS_DOWN);
         ESP_LOGW(TAG, "WS_DISCONNECTED; retrying");
     } else if (event == WEBSOCKET_EVENT_DATA && data->op_code == 1) {
-        // Stage 1 accepts bounded, unfragmented JSON frames; SDK may split into events.
+        // Accept bounded, unfragmented JSON frames; SDK may split into events.
         if (!data->fin || data->payload_len <= 0 || data->payload_len >= sizeof(rx) ||
             data->payload_offset < 0 || data->data_len < 0 ||
             data->payload_offset + data->data_len > data->payload_len) return;
@@ -120,12 +127,14 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event, voi
         if (cJSON_IsString(type) && strcmp(type->valuestring, "hello") == 0) {
             cJSON *version = cJSON_GetObjectItemCaseSensitive(obj, "protocol_version");
             if (cJSON_IsNumber(version) && version->valueint == 1) {
+                muse_ui_update(MUSE_HELLO);
                 ESP_LOGI(TAG, "HELLO_OK protocol=1");
                 xEventGroupSetBits(state, HELLO_READY);
             }
         } else if (cJSON_IsString(type) && strcmp(type->valuestring, "pong") == 0) {
             cJSON *id = cJSON_GetObjectItemCaseSensitive(obj, "id");
             if (cJSON_IsString(id) && strcmp(id->valuestring, expected_id) == 0) {
+                muse_ui_update(MUSE_PONG);
                 ESP_LOGI(TAG, "PONG_OK id=%s", expected_id);
                 xEventGroupSetBits(state, PONG_READY);
             }
@@ -136,9 +145,10 @@ static void websocket_event(void *arg, esp_event_base_t base, int32_t event, voi
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MUSE_STAGE1_BOOT; USB configuration required after every restart");
+    ESP_LOGI(TAG, "MUSE_STAGE2_BOOT; USB configuration required after every restart");
     state = xEventGroupCreate();
     assert(state);
+    muse_ui_start();
     read_configuration();
     // Do not erase existing factory NVS automatically on incompatibility.
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -186,6 +196,7 @@ void app_main(void)
         int sent = esp_websocket_client_send_text(ws, message, length, pdMS_TO_TICKS(5000));
         bits = xEventGroupWaitBits(state, PONG_READY, pdTRUE, pdTRUE, pdMS_TO_TICKS(5000));
         if (sent != length || !(bits & PONG_READY)) {
+            muse_ui_update(MUSE_PONG_EXPIRED);
             ESP_LOGW(TAG, "PONG_TIMEOUT; restarting connection");
             ESP_ERROR_CHECK(esp_websocket_client_stop(ws));
             xEventGroupClearBits(state, WS_READY | HELLO_READY | PONG_READY);

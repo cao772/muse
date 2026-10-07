@@ -16,7 +16,12 @@ def client():
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "stage": 0, "provider": "mock"}
+    assert response.json() == {
+        "status": "ok",
+        "project_stage": 2,
+        "protocol_version": 1,
+        "provider": "mock",
+    }
 
 
 def test_device_round_trip_and_reconnect(client):

@@ -14,7 +14,13 @@ def check(artifacts_dir: Path | None = None):
     errors = []
     documents = [ROOT / "README.md"]
     for directory in ("docs", "firmware", "project_context", "integrations"):
-        documents.extend((ROOT / directory).rglob("*.md"))
+        documents.extend(
+            path
+            for path in (ROOT / directory).rglob("*.md")
+            if not {"managed_components", "build", "vendor-downloads"}.intersection(
+                path.relative_to(ROOT).parts
+            )
+        )
     for document in documents:
         # Current docs use inline links; fenced command examples are not links.
         body = re.sub(r"```.*?```", "", document.read_text(), flags=re.S)

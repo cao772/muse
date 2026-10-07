@@ -36,4 +36,4 @@
 
 示例路径：`examples/esp-idf/01_AXP2101` 用于电源遥测（不亮屏是预期）；`02_lvgl_demo_v9` 用于显示/触控；`05_Spec_Analyzer` 用于采音观察。扬声器参考 `examples/arduino/examples/07_ES8311`，不要混用 Arduino 与 ESP-IDF 构建参数。
 
-本轮未安装完整 ESP-IDF、未构建上述示例。进入 Stage 1 时记录 `idf.py --version`、上游提交、组件锁、实际编译日志，再谈可烧录产物。上游构建矩阵仅说明其测试配置，不代表 Muse 或实物已通过。
+Stage 0.1 仅固化资料；后续已安装 ESP-IDF v5.5.5，Stage 1 完成联网实测，Stage 2 使用上述锁定 BSP 与 LVGL 接入显示/触控。依赖与验收见 [Stage 2](../../project_context/stage-2.md)。上游构建矩阵仅说明其测试配置，不代表 Muse 或实物已通过。

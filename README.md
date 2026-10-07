@@ -2,7 +2,7 @@
 
 本地实体 AI Agent 工程。设备通过 WebSocket 连接 Mac 上的 Gateway；模型和工具集成留在 Gateway 侧，设备不保存云服务密钥。
 
-**当前：Stage 1 开发与接板验证，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；真机联网验收见 [Stage 1 记录](project_context/stage-1.md)。Gateway 保留离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
+**当前：Stage 2 屏幕与触控开发，目标为 Waveshare ESP32-S3-Touch-AMOLED-1.75C 带电池版。** 已完成两份整片 Flash 备份并验证一致；网络链路已实机验证；屏幕/触控验收状态见 [Stage 2 记录](project_context/stage-2.md)。Gateway 保留离线模拟能力。 不依赖 Muse Cloud，也不需要 API Key。`[mock]` 回复只是回显，不是模型推理。
 
 ## 启动
 
@@ -52,11 +52,11 @@ CI 执行相同检查，并启动真实服务运行设备模拟器，还使用 E
 
 ## 已完成与未实现
 
-- 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
+- 已完成：健康检查、连接欢迎消息、心跳、带请求 ID 的模拟文本回复、输入校验、断线重连测试、设备模拟器、AMOLED 状态 UI 与触控页面（人工显示/触控验收待确认）、局域网 token/设备 ID 鉴权、Host/Origin 策略、连接限额与超时。
 - 预留：DeepSeek / Qwen / OpenAI-compatible 文本 provider、MCP adapter。选择未实现 provider 会在启动时报错，避免静默降级。
-- 后续：屏幕/触控/音频驱动、BLE、STT/LLM/TTS、工具调用、GitHub/Dify。当前不接收音频、不执行工具、不保留聊天历史。
+- 后续：显示/触控人工验收、音频驱动、BLE、STT/LLM/TTS、工具调用、GitHub/Dify。当前不接收音频、不执行工具、不保留聊天历史。
 
-协议见 [docs/protocol.md](docs/protocol.md)，下一阶段见 [project_context/stage-0.md](project_context/stage-0.md)。
+协议见 [docs/protocol.md](docs/protocol.md)，当前阶段与实机步骤见 [Stage 2](project_context/stage-2.md)。
 
 ## 板子到货后
 

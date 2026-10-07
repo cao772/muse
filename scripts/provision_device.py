@@ -1,4 +1,4 @@
-"""Send local Wi-Fi configuration over USB and verify Stage 1 heartbeat markers."""
+"""Send local Wi-Fi configuration over USB and verify heartbeat and optional UI markers."""
 
 import argparse
 import json
@@ -32,18 +32,19 @@ def configuration(path: Path) -> dict[str, str]:
         raise ValueError("Invalid device token")
     uri = urlsplit(config["uri"])
     if uri.scheme != "ws" or not uri.hostname or uri.path != "/ws" or uri.username or uri.password:
-        raise ValueError("Stage 1 requires a trusted-LAN ws://Mac-IP:port/ws URI")
+        raise ValueError("Firmware requires a trusted-LAN ws://Mac-IP:port/ws URI")
     payload = json.dumps(config, ensure_ascii=False).encode() + b"\n"
     if len(payload) >= 768:
         raise ValueError("Configuration exceeds firmware input size")
     return config
 
 
-def provision(port: str, path: Path, timeout: float):
+def provision(port: str, path: Path, timeout: float, observe_seconds: float = 0):
     config = configuration(path)
     markers = set()
     pongs = set()
     sent = False
+    passed = False
     deadline = time.monotonic() + timeout
     with serial.Serial(port, 115200, timeout=0.5) as device:
         while time.monotonic() < deadline:
@@ -66,18 +67,33 @@ def provision(port: str, path: Path, timeout: float):
                 if marker in line:
                     print(marker, flush=True)
                     markers.add(marker)
+            ui = re.search(
+                r"UI_READY width=\d+ height=\d+|"
+                r"UI_STATE (?:USB setup|Connecting|Connected|Reconnecting|Verifying|"
+                r"Checking heartbeat)|"
+                r"UI_PAGE (?:home|details)|"
+                r"TOUCH_OK x=\d+ y=\d+ area=(?:top|bottom)-(?:left|right)",
+                line,
+            )
+            if ui:
+                print(ui.group(0), flush=True)
             match = re.search(r"PONG_OK id=(p-\d+)", line)
             if match:
                 pongs.add(match[1])
                 print(f"PONG_OK {match[1]}", flush=True)
-            if {"WIFI_GOT_IP", "HELLO_OK"} <= markers and len(pongs) >= 3:
+            if not passed and {"WIFI_GOT_IP", "HELLO_OK"} <= markers and len(pongs) >= 3:
                 print(
                     "PASS: hardware Wi-Fi → authenticated WebSocket → hello → 3 ping/pong",
                     flush=True,
                 )
-                return
+                passed = True
+                if observe_seconds <= 0:
+                    return
+                deadline = time.monotonic() + observe_seconds
+        if passed:
+            return
     raise SystemExit(
-        "Stage 1 did not complete before timeout; check Wi-Fi, gateway, and device state"
+        "Hardware handshake did not complete before timeout; check Wi-Fi, gateway, and device state"
     )
 
 
@@ -86,8 +102,11 @@ if __name__ == "__main__":
     parser.add_argument("--port", required=True)
     parser.add_argument("--config", type=Path, default=Path(".env.device"))
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument(
+        "--observe-seconds", type=float, default=0, help="Observe UI/reconnect after PASS"
+    )
     args = parser.parse_args()
     try:
-        provision(args.port, args.config, args.timeout)
+        provision(args.port, args.config, args.timeout, args.observe_seconds)
     except (ValueError, OSError, serial.SerialException) as error:
         raise SystemExit(str(error)) from error
