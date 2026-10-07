@@ -11,7 +11,7 @@ import stat
 import time
 import uuid
 import webbrowser
-from datetime import UTC, datetime
+import datetime as dt
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -202,7 +202,11 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
     server.timeout = timeout
     redirect_uri = f"http://127.0.0.1:{server.server_port}/auth/callback"
 
-    client_id = (\n        str(existing.get("client_id"))\n        if existing and existing.get("client_id")\n        else "dynamic_agent_client"\n    )
+    client_id = (
+        str(existing.get("client_id"))
+        if existing and existing.get("client_id")
+        else "dynamic_agent_client"
+    )
     params = {
         "client_id": client_id,
         "ext_agent_host_id": host_id,
@@ -301,12 +305,15 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
         "expires_in": tokens.get("expires_in", 3600),
         "earliest_refresh_at": tokens.get("earliest_refresh_at"),
         "scopes": sorted(scopes),
-        "saved_at": datetime.now(UTC).isoformat(),
+        "saved_at": dt.datetime.now(dt.UTC).isoformat(),
     }
     if not record["access_token"] or not record["refresh_token"]:
         raise SignInError("ChatGPT token response did not include renewable credentials")
     _write_private(credentials_path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
-    print(\n        "ChatGPT plan connected for Muse. "\n        "Credentials were stored locally with owner-only access."\n    )
+    print(
+        "ChatGPT plan connected for Muse. "
+        "Credentials were stored locally with owner-only access."
+    )
 
 
 def main() -> None:
