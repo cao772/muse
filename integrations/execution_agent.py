@@ -22,9 +22,22 @@ PROFILES = {
 
 def intent(text: str, active=False) -> str | None:
     lower = text.lower()
+    compact = re.sub(r"\s+", "", lower)
     for alias in ("code x", "codecs", "科德克斯", "扣得克斯"):
         lower = lower.replace(alias, "codex")
-    if any(x in lower for x in ("告诉codex", "告诉 codex", "刚才那个方案", "追加反馈")):
+    if any(
+        x in lower
+        for x in (
+            "告诉codex",
+            "告诉 codex",
+            "刚才那个方案",
+            "追加反馈",
+            "继续执行",
+            "继续开发",
+            "codex继续",
+            "codex 继续",
+        )
+    ):
         return "feedback"
     if any(
         x in lower
@@ -35,7 +48,10 @@ def intent(text: str, active=False) -> str | None:
         return "profile"
     if (
         "codex" in lower
-        or "当前用什么模型" in text
+        or any(
+            x in compact
+            for x in ("当前用什么模型", "当前模型", "当前推理", "当前reasoning", "当前profile")
+        )
         or (
             active
             and any(
@@ -263,10 +279,11 @@ class PersonalAgentRouter(ProjectAwareProvider):
                     if result.get("status") == "sent"
                     else "反馈结果未确认，不会重复发送。"
                 )
-            if "模型" in text or "推理" in text:
+            if any(x in text.lower() for x in ("模型", "推理", "profile", "reasoning")):
                 return (
                     f"当前{current.get('model_profile', '未知')}档位，"
                     f"{current.get('reasoning_effort', '未知')}推理。"
+                    f"模型{current.get('resolved_model', '未确认')}。"
                 )
             if "测试" in text:
                 passed, failed = current.get("tests_passed"), current.get("tests_failed")

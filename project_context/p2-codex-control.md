@@ -36,3 +36,11 @@ fast/balanced/strong与low/medium/high由CAO解析实际模型。单独说“用
 
 Muse worktree: /Users/caoyh/.codex/worktrees/muse-p2-control/muse (feature/p2-codex-control)
 CAO worktree: /Users/caoyh/.codex/worktrees/cao-p2/cao (codex/muse-codex-control)
+
+## 2026-10-08 ALL 整合与网络恢复
+
+保留 P2 子分支，整合 Muse ALL bc1af1c 与 CAO ALL 4e08796，不修改 main/cao 或父分支。原执行路由改名 integrations/execution_agent.py，与 ALL 的 personal_agent.py 分离；明确执行意图先进入受控 P2，普通请求完整交给 ALL 的 PersonalAgentProvider，保留 GPT 研究路由及 CAO 项目事实边界。新增回归证明长期风险/架构问题继续走 GPT，普通聊天保持原超时。继续执行只向活跃已绑定会话追加反馈；当前 reasoning/profile/model 查询显示实际受控解析结果，无上下文不猜。
+
+实测 HYETEC_705_5G 在 45 秒内未获取 IP。切换手机热点后 Mac 与板子连通，重新下发本地忽略配置；Wi-Fi、鉴权 WebSocket、hello、三次 pong 全通过。未将热点凭据或 device token 写入文档。CAO Personal API 返回唯一授权测试仓库及三档 profile，Host 已恢复。
+
+整合后验证 Muse 150 passed，Ruff / format；CAO 334 passed，前端 40 passed。尚未完成本轮新版 3 秒停顿及整合后的语音控制实机验收，不把旧固定 5 秒验收冒充新版结果。

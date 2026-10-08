@@ -243,3 +243,17 @@ def test_p2_wrapper_preserves_all_research_routing_and_execution_context():
         assert "strong" in await router.reply("当前用什么模型？")
 
     asyncio.run(check())
+
+
+def test_continue_stays_on_existing_session_and_never_starts_without_context():
+    async def check():
+        execution = Execution()
+        router = PersonalAgentRouter(Fallback(), Projects(), execution)
+        assert "当前没有" in await router.reply("继续执行")
+        assert not execution.posts
+        router.active_id = str(uuid4())
+        assert "反馈已发送" in await router.reply("继续执行，跑完测试")
+        assert execution.posts[0][0].endswith("/feedback")
+        assert "high" in await router.reply("当前 reasoning 是什么？")
+
+    asyncio.run(check())
