@@ -38,9 +38,7 @@ def transport(status=200):
                         if mode == "return"
                         else "根据当前记录，优先核对需要你处理的项目"
                     ),
-                    "items": [
-                        {"project_name": "法规知识库", "text": "受限站点仍需授权"}
-                    ],
+                    "items": [{"project_name": "法规知识库", "text": "受限站点仍需授权"}],
                     "snapshot_only": True,
                     "comparison_available": False,
                     "auto_execute": False,
