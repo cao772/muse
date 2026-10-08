@@ -39,10 +39,11 @@ def test_mono_conversion_full_scale_and_different_channels():
         b"invalid",
         wav_bytes([0, 0], rate=48000),
         wav_bytes([0], channels=1),
-        wav_bytes([0] * 160002),
+        wav_bytes([0] * 640002),
         wav_bytes([0, 1])[:-1],
-        b"x" * 1048577,
+        b"x" * 2097153,
     ],
+    ids=["invalid", "rate", "channels", "duration", "truncated", "size"],
 )
 def test_invalid_wav(data):
     with pytest.raises(ValueError):

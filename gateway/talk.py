@@ -21,16 +21,17 @@ from gateway.config import Settings
 from integrations.cao import CAOClient, ProjectAwareProvider
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
+from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
-from scripts.capture_audio import CaptureTimeout, receive_pcm
+from scripts.capture_audio import CaptureCancelled, CaptureTimeout, receive_pcm
 from scripts.play_audio import upload
 
 
 def input_wav(pcm):
-    if len(pcm) != 320000:
-        raise ValueError("Expected a verified 5-second stereo recording")
+    if not 0 < len(pcm) <= 1280000 or len(pcm) % 4:
+        raise ValueError("Expected verified stereo PCM, at most 20 seconds")
     stream = io.BytesIO()
     with wave.open(stream, "wb") as output:
         output.setnchannels(2)
@@ -167,7 +168,10 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     for pcm in buffers:
         await play(pcm)
     timings["play_seconds"] = round(perf_counter() - started, 3)
-    return {"segments": len(buffers), "answer_source": answer_source, **timings}
+    result = {"segments": len(buffers), "answer_source": answer_source, **timings}
+    if isinstance(provider, PersonalAgentRouter):
+        result.update(intent=provider.last_intent, route_result=provider.last_route_result)
+    return result
 
 
 async def serve(args):
@@ -185,11 +189,23 @@ async def serve(args):
         stt = ResidentWhisper(settings.stt_model)
         provider = CompatibleProvider(settings, voice_mode=True)
         if settings.cao_enabled:
-            provider = ProjectAwareProvider(
-                provider,
-                CAOClient(settings.cao_base_url, settings.cao_timeout_seconds),
+            cao = CAOClient(settings.cao_base_url, settings.cao_timeout_seconds)
+            provider = (
+                PersonalAgentRouter(
+                    provider,
+                    cao,
+                    ExecutionClient(
+                        settings.cao_base_url, settings.cao_muse_token.get_secret_value()
+                    ),
+                )
+                if settings.cao_execution_enabled
+                else ProjectAwareProvider(provider, cao)
             )
         tts = ResidentSerena()
+    if getattr(args, "execution_id", None):
+        if not isinstance(provider, PersonalAgentRouter):
+            raise ValueError("Explicit execution recovery requires P2 configuration")
+        await provider.restore(args.execution_id)
     # Own one USB handle across capture, processing and playback; no competing reader.
     with serial.Serial(
         args.port, 115200, timeout=0.5, write_timeout=5, exclusive=True
@@ -225,20 +241,54 @@ async def serve(args):
                 print(f"USB playback failed: {code}", flush=True)
                 raise
 
+        if isinstance(provider, PersonalAgentRouter):
+            last_execution_state = [None]
+
+            def report_execution(value):
+                marker = (value.get("id"), value.get("status"), value.get("model_profile"))
+                if marker != last_execution_state[0]:
+                    last_execution_state[0] = marker
+                    print(
+                        "CODEX "
+                        + json.dumps({"id": marker[0], "state": marker[1], "profile": marker[2]}),
+                        flush=True,
+                    )
+
+            provider.on_execution = report_execution
+
         state = ["Thinking"]
 
         def send_state(value=None):
             with device.lock:
                 if value is not None:
                     state[0] = value
-                device.device.write(json.dumps({"voice_state": state[0]}).encode() + b"\n")
+                frame = {"voice_state": state[0]}
+                execution = getattr(provider, "snapshot", None)
+                if execution:
+                    frame["codex"] = {
+                        "state": execution.get("status", "unknown"),
+                        "profile": execution.get("model_profile", "balanced"),
+                        "needs_user": bool(execution.get("needs_user")),
+                        "title": execution.get("project_id", "Task")[:24],
+                    }
+                device.device.write(json.dumps(frame).encode() + b"\n")
 
         async def heartbeat():
             while True:
                 await asyncio.to_thread(send_state)
                 await asyncio.sleep(2)
 
+        async def poll_execution():
+            while True:
+                if isinstance(provider, PersonalAgentRouter) and provider.active_id:
+                    try:
+                        await provider.refresh()
+                    except Exception:
+                        provider.publish({"id": provider.active_id, "status": "unknown"})
+                await asyncio.sleep(3)
+
         task = asyncio.create_task(heartbeat())
+        poll_task = asyncio.create_task(poll_execution())
         try:
             send_state("Thinking")
             if not args.mock:
@@ -248,7 +298,8 @@ async def serve(args):
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            poll_task.cancel()
+            await asyncio.gather(task, poll_task, return_exceptions=True)
             if not args.mock:
                 await stt.worker.close()
                 await tts.worker.close()
@@ -259,7 +310,7 @@ async def conversation(args, device, stt, provider, tts, play, settings, send_st
     while True:
         send_state("Ready")
         print(
-            "Ready: tap Audio Input → Record 5s, speak; wait until Ready before pressing again",
+            "Ready: tap Audio Input → Speak, speak; wait until Ready before pressing again",
             flush=True,
         )
         phase = "Receiving"
@@ -281,7 +332,9 @@ async def conversation(args, device, stt, provider, tts, play, settings, send_st
                 provider,
                 tts,
                 play,
-                settings.provider_timeout_seconds,
+                120
+                if isinstance(provider, PersonalAgentRouter)
+                else settings.provider_timeout_seconds,
                 status=status,
             )
             turn += 1
@@ -299,6 +352,21 @@ async def conversation(args, device, stt, provider, tts, play, settings, send_st
                         first_audio - capture_started, 3
                     )
             print("Done: " + json.dumps(result), flush=True)
+        except CaptureCancelled as error:
+            status("Synthesizing")
+            message = (
+                "没听到说话，请重试。"
+                if error.reason == "no_speech"
+                else "录音到达二十秒上限，请分成短句重说。"
+            )
+            try:
+                for chunk in speech_chunks(message):
+                    for audio in await synthesize_bounded(tts, chunk):
+                        status("Playing")
+                        await play(audio)
+            except (ValueError, RuntimeError, TimeoutError, OSError, serial.SerialException):
+                print("Capture guidance unavailable; return to Ready without execution", flush=True)
+            print("Capture cancelled: " + error.reason + "; no STT or task execution", flush=True)
         except CaptureTimeout:
             if args.once:
                 raise
@@ -321,6 +389,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--execution-id", help="Explicitly inspect an existing authorized P2 UUID; never replay"
+    )
     parser.add_argument("--mock", action="store_true", help="No API call; mock TTS is silence")
     args = parser.parse_args()
     try:

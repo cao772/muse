@@ -21,8 +21,8 @@ class MonoAudio:
 
 
 def stereo_wav_to_mono(data: bytes) -> MonoAudio:
-    if len(data) > 1048576:
-        raise ValueError("WAV exceeds 1MiB input limit")
+    if len(data) > 2097152:
+        raise ValueError("WAV exceeds 2MiB input limit")
     try:
         with wave.open(io.BytesIO(data), "rb") as source:
             if (
@@ -30,9 +30,9 @@ def stereo_wav_to_mono(data: bytes) -> MonoAudio:
                 or source.getsampwidth() != 2
                 or source.getframerate() != 16000
                 or source.getcomptype() != "NONE"
-                or not 1 <= source.getnframes() <= 80000
+                or not 1 <= source.getnframes() <= 320000
             ):
-                raise ValueError("Expected 16kHz/16bit/stereo PCM WAV, at most 5 seconds")
+                raise ValueError("Expected 16kHz/16bit/stereo PCM WAV, at most 20 seconds")
             frames = source.getnframes()
             raw = source.readframes(frames)
             if len(raw) != frames * 4:

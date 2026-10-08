@@ -1,4 +1,4 @@
-"""Capture 1–5 seconds of stereo PCM over USB; verify framing/hash before saving a private WAV."""
+"""Receive bounded stereo PCM over USB; verify framing/hash before saving a private WAV."""
 
 import argparse
 import base64
@@ -18,10 +18,12 @@ RECORDINGS = Path(__file__).resolve().parents[1] / "recordings"
 
 
 class PCMTransfer:
-    def __init__(self, seconds: int):
-        if seconds not in range(1, 6):
-            raise ValueError("Recording duration must be 1–5 seconds")
-        self.expected = seconds * RATE * 4
+    def __init__(self, seconds: int, *, variable: bool = False):
+        if seconds not in range(1, 21 if variable else 6):
+            raise ValueError("Recording duration outside allowed capture bounds")
+        self.maximum = seconds * RATE * 4
+        self.variable = variable
+        self.expected = self.maximum
         self.pcm = bytearray()
         self.digest = None
 
@@ -31,8 +33,15 @@ class PCMTransfer:
                 r"MUSE_PCM_BEGIN rate=16000 channels=2 bits=16 bytes=(\d+) sha256=([a-f0-9]{64})",
                 line,
             )
-            if not match or int(match[1]) != self.expected or self.digest is not None:
+            if (
+                not match
+                or self.digest is not None
+                or not 0 < int(match[1]) <= self.maximum
+                or int(match[1]) % 4
+                or (not self.variable and int(match[1]) != self.expected)
+            ):
                 raise ValueError("Unexpected audio format or length")
+            self.expected = int(match[1])
             self.digest = match[2]
         elif line.startswith("MUSE_PCM_DATA "):
             match = re.fullmatch(r"MUSE_PCM_DATA offset=(\d+) data=([A-Za-z0-9+/=]+)", line)
@@ -60,6 +69,12 @@ class PCMTransfer:
         return False
 
 
+class CaptureCancelled(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__("Bounded capture cancelled")
+
+
 class CaptureTimeout(ValueError):
     pass
 
@@ -69,7 +84,7 @@ def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
     transfer = PCMTransfer(seconds)
     if wait_button:
         if seconds != 5:
-            raise ValueError("The screen button records exactly 5 seconds")
+            raise ValueError("Use default screen capture bounds; fixed mode remains 5 seconds")
     else:
         device.write(json.dumps({"capture_seconds": seconds}).encode() + b"\n")
         device.flush()
@@ -97,6 +112,14 @@ def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
             raise ValueError(
                 f"Device stopped capture/export after {len(transfer.pcm)} verified PCM bytes"
             )
+        if re.search(r"AUDIO_RECORDING seconds=20 mode=adaptive$", line):
+            if transfer.digest is not None or transfer.pcm:
+                raise ValueError("Recording mode changed during an audio transfer")
+            transfer = PCMTransfer(20, variable=True)
+        cancelled = re.search(r"AUDIO_CAPTURE_CANCELLED reason=(no_speech|limit)$", line)
+        if cancelled:
+            device._muse_pending = bytes(buffered)
+            raise CaptureCancelled(cancelled[1])
         if "UI_AUDIO_RECORD_REQUEST" in line:
             device._muse_capture_started = time.monotonic()
         state = re.search(r"VOICE_STATE (Ready|Listening|Thinking|Speaking)$", line)
@@ -125,9 +148,7 @@ def capture(port: str, seconds: int, directory: Path, wait_button: bool = False)
     with serial.Serial(port, 115200, timeout=0.5) as device:
         device.reset_input_buffer()
         if wait_button:
-            print(
-                "Receiver ready: tap Audio Input → Record 5s on the board, then speak", flush=True
-            )
+            print("Receiver ready: tap Audio Input → Speak on the board, then speak", flush=True)
         pcm = receive_pcm(device, seconds, wait_button)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)
@@ -144,7 +165,10 @@ def capture(port: str, seconds: int, directory: Path, wait_button: bool = False)
     except Exception:
         path.unlink(missing_ok=True)
         raise
-    print(f"PASS: {seconds}s, 16000 Hz, stereo s16le, SHA-256 verified; WAV: {path.resolve()}")
+    print(
+        f"PASS: {len(pcm) / (RATE * 4):.3f}s, 16000 Hz, stereo s16le, "
+        f"SHA-256 verified; WAV: {path.resolve()}"
+    )
     return path
 
 
@@ -154,7 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--seconds", type=int, choices=range(1, 6), default=5)
     parser.add_argument("--directory", type=Path, default=RECORDINGS)
     parser.add_argument(
-        "--wait-button", action="store_true", help="Wait for the screen Record 5s button"
+        "--wait-button", action="store_true", help="Wait for the screen Speak button"
     )
     args = parser.parse_args()
     try:

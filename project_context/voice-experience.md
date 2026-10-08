@@ -55,6 +55,6 @@ Mac 启动先发送 Thinking，再预加载/预热两个模型；预热期间不
 
 ## 使用与限制
 
-沿用 `uv run muse-talk --port /dev/cu.usbmodem101`；看到屏幕 Ready 后按 Audio Input → Record 5s。首次启动/故障重载期间会显示 Thinking。可使用 Ctrl-C 结束；停止后 15 秒进入 Host offline。主机恢复后无需重新刷固件；板子重启仍需下发 RAM 配置。
+沿用 `uv run muse-talk --port /dev/cu.usbmodem101`；当前看到屏幕 Ready 后按 Audio Input → Speak。新录音规则见 [3 秒停顿](adaptive-recording.md)，上方延迟记录为当时固定 5 秒录音的历史验收。首次启动/故障重载期间会显示 Thinking。可使用 Ctrl-C 结束；停止后 15 秒进入 Host offline。主机恢复后无需重新刷固件；板子重启仍需下发 RAM 配置。
 
 Whisper + TTS 进程常驻增加内存占用；本机为 M5 / 16GB，未证明其他机器资源与耗时。两模型预热时间不计入每轮。设备状态是一条物理 USB 开发链路的主机元数据，没有新增网络音频入口。网络断连/Host offline 与语音 Ready 是不同状态，页面仍保留 Wi-Fi/Gateway 信息。

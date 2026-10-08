@@ -126,3 +126,7 @@ uv run muse-talk --port /dev/cu.usbmodem101
 - “法规知识库项目现在有什么风险？”
 
 项目事实只从 CAO 的 `/api/v1/projects` 与 `/api/v1/projects/{project_id}/brief` 读取。CAO 不可用时，项目查询不会退回通用 LLM 猜测，而是明确提示项目中枢暂时不可用。普通聊天仍按原 DeepSeek / compatible provider 路径处理。CAO 地址强制为 loopback HTTP，P1 不新增远程项目 API 暴露。
+
+P2 Personal Agent 执行、查询和反馈：[配置与边界](project_context/p2-codex-control.md)。
+
+当前开发分支已新增 [按键录音与 3 秒停顿](project_context/adaptive-recording.md)：Audio Input → Speak，开口后连续安静 3 秒结束，最长 20 秒；手动固定录音与 5 秒播放分段保持兼容。
