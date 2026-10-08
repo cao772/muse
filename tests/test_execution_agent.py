@@ -221,3 +221,25 @@ def test_truncated_launch_does_not_invent_task_from_repository_readme():
         assert router.active_id is None and not execution.posts
 
     asyncio.run(check())
+
+
+def test_p2_wrapper_preserves_all_research_routing_and_execution_context():
+    from integrations.personal_provider import PersonalAgentProvider
+
+    class Research:
+        timeout_seconds = 60
+
+        async def reply(self, text, **kwargs):
+            return "研究结果"
+
+    async def check():
+        brain = PersonalAgentProvider(Fallback(), cao=Projects(), chatgpt=Research())
+        router = PersonalAgentRouter(brain, Projects(), Execution())
+        answer = await router.reply("这个系统架构怎么设计，综合考虑长期风险和复杂权衡？")
+        assert answer == "研究结果" and router.last_source == "chatgpt"
+        assert router.timeout_seconds("你好", 15) == 15
+        assert router.timeout_seconds("开始开发测试项目写加法", 15) == 120
+        assert "已开始" in await router.reply("开始开发测试项目写加法")
+        assert "strong" in await router.reply("当前用什么模型？")
+
+    asyncio.run(check())

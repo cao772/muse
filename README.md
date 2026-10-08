@@ -130,3 +130,25 @@ uv run muse-talk --port /dev/cu.usbmodem101
 P2 Personal Agent 执行、查询和反馈：[配置与边界](project_context/p2-codex-control.md)。
 
 当前开发分支已新增 [按键录音与 3 秒停顿](project_context/adaptive-recording.md)：Audio Input → Speak，开口后连续安静 3 秒结束，最长 20 秒；手动固定录音与 5 秒播放分段保持兼容。
+
+## Personal Agent ALL：ChatGPT 研究脑与统一路由
+
+开发分支 `feature/personal-agent-all` 在 P1 只读项目查询上增加统一能力路由。普通聊天继续走现有 DeepSeek / compatible provider；项目事实走 CAO；明确 Codex 动作进入 Codex capability；明确“用 GPT / 认真查 / 查网页 / 深度研究 / 看看我漏了什么”进入 ChatGPT plan research；ChatGPT 已授权且自动路由开启时，高难度问题也可自动升级。未接通的 Codex / Commerce 不会由通用 LLM 假装执行。
+
+ChatGPT plan 使用官方 Sign in with ChatGPT open-source flow，不需要把 OpenAI API key 写进 Muse。首次在 Mac 运行：
+
+```sh
+uv run muse-chatgpt-signin
+```
+
+浏览器明确授权后，凭据只写入 `~/.config/muse/chatgpt-plan.json`，要求 owner-only 权限；设备端不保存 token。然后在本地 `.env` 启用：
+
+```env
+MUSE_CHATGPT_ENABLED=true
+MUSE_CHATGPT_AUTO_ENABLED=true
+MUSE_CHATGPT_WEB_CONTEXT=low
+```
+
+模型默认从当前 ChatGPT 账号可见模型目录中选择，不在仓库硬编码账号一定拥有某个型号。网页研究使用 Responses API 的 `web_search`，请求固定 `store=false`、`stream=true`。该授权不会让 Muse 读取 ChatGPT 历史对话或 Memory。
+
+完整设计和安全边界见 [Personal Agent ALL](project_context/personal-agent-all.md)。

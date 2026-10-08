@@ -25,6 +25,7 @@ muse-gateway = "gateway.__main__:main"
 muse-voice = "gateway.voice:main"
 muse-talk = "gateway.talk:main"
 muse-tts = "gateway.tts:main"
+muse-chatgpt-signin = "scripts.chatgpt_signin:main"
 
 [project.optional-dependencies]
 stt = [

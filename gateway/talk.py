@@ -18,10 +18,12 @@ from time import perf_counter
 import serial
 
 from gateway.config import Settings
-from integrations.cao import CAOClient, ProjectAwareProvider
+from integrations.cao import CAOClient
+from integrations.chatgpt_plan import ChatGPTPlanProvider
+from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
-from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
+from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
@@ -152,7 +154,12 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     timings["stt_seconds"] = round(perf_counter() - started, 3)
     status("Thinking")
     started = perf_counter()
-    answer = await asyncio.wait_for(provider.reply(text), provider_timeout)
+    timeout = (
+        provider.timeout_seconds(text, provider_timeout)
+        if hasattr(provider, "timeout_seconds")
+        else provider_timeout
+    )
+    answer = await asyncio.wait_for(provider.reply(text), timeout)
     answer_source = getattr(provider, "last_source", "llm")
     timings["llm_seconds"] = round(perf_counter() - started, 3)
     status("Synthesizing")
@@ -187,20 +194,38 @@ async def serve(args):
         if settings.stt_provider != "mlx-whisper" or settings.provider == "mock":
             raise ValueError("Configure local Whisper and a real LLM in .env, or use --mock")
         stt = ResidentWhisper(settings.stt_model)
-        provider = CompatibleProvider(settings, voice_mode=True)
-        if settings.cao_enabled:
-            cao = CAOClient(settings.cao_base_url, settings.cao_timeout_seconds)
-            provider = (
-                PersonalAgentRouter(
-                    provider,
-                    cao,
-                    ExecutionClient(
-                        settings.cao_base_url, settings.cao_muse_token.get_secret_value()
-                    ),
-                )
-                if settings.cao_execution_enabled
-                else ProjectAwareProvider(provider, cao)
+        fallback = CompatibleProvider(settings, voice_mode=True)
+        cao_client = (
+            CAOClient(settings.cao_base_url, settings.cao_timeout_seconds)
+            if settings.cao_enabled
+            else None
+        )
+        chatgpt = (
+            ChatGPTPlanProvider(
+                settings.chatgpt_credentials_path,
+                preferred_model=settings.chatgpt_model,
+                timeout_seconds=settings.chatgpt_timeout_seconds,
+                web_context=settings.chatgpt_web_context,
+                voice_mode=True,
             )
+            if settings.chatgpt_enabled
+            else None
+        )
+        brain = PersonalAgentProvider(
+            fallback,
+            cao=cao_client,
+            chatgpt=chatgpt,
+            chatgpt_auto_enabled=settings.chatgpt_auto_enabled,
+        )
+        provider = (
+            PersonalAgentRouter(
+                brain,
+                cao_client,
+                ExecutionClient(settings.cao_base_url, settings.cao_muse_token.get_secret_value()),
+            )
+            if settings.cao_enabled and settings.cao_execution_enabled
+            else brain
+        )
         tts = ResidentSerena()
     if getattr(args, "execution_id", None):
         if not isinstance(provider, PersonalAgentRouter):
@@ -332,9 +357,7 @@ async def conversation(args, device, stt, provider, tts, play, settings, send_st
                 provider,
                 tts,
                 play,
-                120
-                if isinstance(provider, PersonalAgentRouter)
-                else settings.provider_timeout_seconds,
+                settings.provider_timeout_seconds,
                 status=status,
             )
             turn += 1

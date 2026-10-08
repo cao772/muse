@@ -131,6 +131,12 @@ class PersonalAgentRouter(ProjectAwareProvider):
         )
         return profile, effort
 
+    def timeout_seconds(self, text, default):
+        if intent(text, bool(self.active_id)):
+            return max(default, 120)
+        timeout = getattr(self.fallback, "timeout_seconds", None)
+        return timeout(text, default) if callable(timeout) else default
+
     async def restore(self, execution_id):
         # Explicit operator recovery: inspect one authorized UUID; never launch/resume a harness.
         value = await self.execution.inspect(str(UUID(execution_id)))
@@ -151,6 +157,10 @@ class PersonalAgentRouter(ProjectAwareProvider):
         self.last_intent = action or "chat"
         self.last_route_result = "handled"
         if not action:
+            if hasattr(self.fallback, "last_route_reason"):
+                answer = await self.fallback.reply(text)
+                self.last_source = self.fallback.last_source
+                return answer
             return await super().reply(text)
         self.last_source = "cao"
         try:
