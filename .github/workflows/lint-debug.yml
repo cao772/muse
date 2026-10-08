@@ -1,0 +1,21 @@
+name: Lint debug
+
+on:
+  push:
+    branches:
+      - feature/personal-agent-all
+
+jobs:
+  ruff-fix-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.20"
+      - run: uv sync --locked --python 3.12
+      - name: Preview Ruff fixes
+        run: |
+          uv run --frozen ruff check --fix . || true
+          uv run --frozen ruff format .
+          git diff

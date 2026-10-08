@@ -18,8 +18,11 @@ from time import perf_counter
 import serial
 
 from gateway.config import Settings
+from integrations.cao import CAOClient
+from integrations.chatgpt_plan import ChatGPTPlanProvider
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
+from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
@@ -150,7 +153,13 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     timings["stt_seconds"] = round(perf_counter() - started, 3)
     status("Thinking")
     started = perf_counter()
-    answer = await asyncio.wait_for(provider.reply(text), provider_timeout)
+    timeout = (
+        provider.timeout_seconds(text, provider_timeout)
+        if hasattr(provider, "timeout_seconds")
+        else provider_timeout
+    )
+    answer = await asyncio.wait_for(provider.reply(text), timeout)
+    answer_source = getattr(provider, "last_source", "llm")
     timings["llm_seconds"] = round(perf_counter() - started, 3)
     status("Synthesizing")
     started = perf_counter()
@@ -165,7 +174,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     for pcm in buffers:
         await play(pcm)
     timings["play_seconds"] = round(perf_counter() - started, 3)
-    return {"segments": len(buffers), **timings}
+    return {"segments": len(buffers), "answer_source": answer_source, **timings}
 
 
 async def serve(args):
@@ -181,7 +190,29 @@ async def serve(args):
         if settings.stt_provider != "mlx-whisper" or settings.provider == "mock":
             raise ValueError("Configure local Whisper and a real LLM in .env, or use --mock")
         stt = ResidentWhisper(settings.stt_model)
-        provider = CompatibleProvider(settings, voice_mode=True)
+        fallback = CompatibleProvider(settings, voice_mode=True)
+        cao_client = (
+            CAOClient(settings.cao_base_url, settings.cao_timeout_seconds)
+            if settings.cao_enabled
+            else None
+        )
+        chatgpt = (
+            ChatGPTPlanProvider(
+                settings.chatgpt_credentials_path,
+                preferred_model=settings.chatgpt_model,
+                timeout_seconds=settings.chatgpt_timeout_seconds,
+                web_context=settings.chatgpt_web_context,
+                voice_mode=True,
+            )
+            if settings.chatgpt_enabled
+            else None
+        )
+        provider = PersonalAgentProvider(
+            fallback,
+            cao=cao_client,
+            chatgpt=chatgpt,
+            chatgpt_auto_enabled=settings.chatgpt_auto_enabled,
+        )
         tts = ResidentSerena()
     # Own one USB handle across capture, processing and playback; no competing reader.
     with serial.Serial(

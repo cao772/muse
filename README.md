@@ -98,3 +98,54 @@ TTS 默认使用 Mac 本地 Qwen3-TTS / Serena 温柔女声，不需要 API Key�
 运行 `uv run muse-talk --port /dev/cu.usbmodem101`，看到 Ready 后在屏幕按 Audio Input → Record 5s，说一句话；Mac 自动完成 Whisper → DeepSeek → Serena → USB 扬声器播放。处理期间不要重复按，等重新 Ready 再说下一句。音频不上传、录音不落盘，只有转录文本发给配置的 LLM。详细配置、阶段耗时与已知限制见 [Voice MVP](project_context/voice-mvp.md)。
 
 Voice 体验优化：圆屏显示 Ready / Listening / Thinking / Speaking，忙时禁用录音；Whisper 与 Serena 启动预热并常驻复用。进程故障会终止并在下一轮重载，停止服务后设备显示 Host offline。验证与延迟口径见 [体验优化](project_context/voice-experience.md)。
+
+
+## Personal Agent P1：CAO 项目查询
+
+Voice MVP 可选择接入本机 CAO Project OS，第一阶段只做**只读项目查询**，不启动 Codex、不修改项目、不 push / merge / 部署。
+
+CAO Central API 先在本机保持运行（默认 `http://127.0.0.1:8080`），Muse 的本地 `.env` 增加：
+
+```sh
+MUSE_CAO_ENABLED=true
+MUSE_CAO_BASE_URL=http://127.0.0.1:8080
+MUSE_CAO_TIMEOUT_SECONDS=5
+```
+
+随后仍使用：
+
+```sh
+uv run muse-talk --port /dev/cu.usbmodem101
+```
+
+第一阶段支持类似：
+
+- “Muse，我现在有哪些项目？”
+- “法规知识库项目现在进展怎么样？”
+- “法规知识库项目下一步是什么？”
+- “法规知识库项目现在有什么风险？”
+
+项目事实只从 CAO 的 `/api/v1/projects` 与 `/api/v1/projects/{project_id}/brief` 读取。CAO 不可用时，项目查询不会退回通用 LLM 猜测，而是明确提示项目中枢暂时不可用。普通聊天仍按原 DeepSeek / compatible provider 路径处理。CAO 地址强制为 loopback HTTP，P1 不新增远程项目 API 暴露。
+
+
+## Personal Agent ALL：ChatGPT 研究脑与统一路由
+
+开发分支 `feature/personal-agent-all` 在 P1 只读项目查询上增加统一能力路由。普通聊天继续走现有 DeepSeek / compatible provider；项目事实走 CAO；明确 Codex 动作进入 Codex capability；明确“用 GPT / 认真查 / 查网页 / 深度研究 / 看看我漏了什么”进入 ChatGPT plan research；ChatGPT 已授权且自动路由开启时，高难度问题也可自动升级。未接通的 Codex / Commerce 不会由通用 LLM 假装执行。
+
+ChatGPT plan 使用官方 Sign in with ChatGPT open-source flow，不需要把 OpenAI API key 写进 Muse。首次在 Mac 运行：
+
+```sh
+uv run muse-chatgpt-signin
+```
+
+浏览器明确授权后，凭据只写入 `~/.config/muse/chatgpt-plan.json`，要求 owner-only 权限；设备端不保存 token。然后在本地 `.env` 启用：
+
+```env
+MUSE_CHATGPT_ENABLED=true
+MUSE_CHATGPT_AUTO_ENABLED=true
+MUSE_CHATGPT_WEB_CONTEXT=low
+```
+
+模型默认从当前 ChatGPT 账号可见模型目录中选择，不在仓库硬编码账号一定拥有某个型号。网页研究使用 Responses API 的 `web_search`，请求固定 `store=false`、`stream=true`。该授权不会让 Muse 读取 ChatGPT 历史对话或 Memory。
+
+完整设计和安全边界见 [Personal Agent ALL](project_context/personal-agent-all.md)。
