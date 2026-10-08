@@ -38,6 +38,9 @@ PROJECT_QUERY_MARKERS = (
     "悬着",
     "未完成的事",
     "今天最该做",
+    "今天先做什么",
+    "今天优先做什么",
+    "先处理什么",
     "现在最重要",
 )
 PORTFOLIO_MARKERS = ("有哪些项目", "项目列表", "多少项目", "所有项目", "项目有哪些")
@@ -128,6 +131,23 @@ class CAOClient:
             raise CAOError("CAO attention returned invalid data")
         return data
 
+    async def work_brief(self, mode: str) -> dict[str, Any]:
+        if mode not in {"return", "priority"}:
+            raise ValueError("Invalid work brief mode")
+        if not self.muse_token:
+            raise CAOError("CAO personal work brief requires a scoped Muse token")
+        data = await self._get(f"/api/v1/personal-agent/work-brief?mode={mode}")
+        if (
+            not isinstance(data, dict)
+            or data.get("mode") != mode
+            or data.get("snapshot_only") is not True
+            or data.get("auto_execute") is not False
+            or data.get("comparison_available") is not False
+            or not isinstance(data.get("items"), list)
+        ):
+            raise CAOError("CAO work brief returned invalid or unverified data")
+        return data
+
     async def personal_summary(self) -> dict[str, Any]:
         data = await self._get("/api/v1/personal-agent/summary")
         if not isinstance(data, dict):
@@ -213,11 +233,20 @@ class CAOClient:
             return f"目前有{count}个未闭环事项，其中{needs_user}个需要你处理{tail}。"
 
         if any(marker in text for marker in SUMMARY_MARKERS):
-            data = await self.personal_summary()
-            headline = _short(data.get("headline") or "当前没有紧急事项", 42)
-            items = list(data.get("items") or [])
-            first = _short((items[0] if items else {}).get("text"), 34)
-            return f"{headline}。" + (f"最优先：{first}。" if first else "")
+            priority_mode = any(
+                marker in text
+                for marker in ("今天最该做", "今天先做什么", "今天优先做什么", "先处理什么", "现在最重要")
+            )
+            mode = "priority" if priority_mode else "return"
+            data = await self.work_brief(mode)
+            headline = _short(data.get("headline"), 52)
+            items = data.get("items") or []
+            first = items[0] if items and isinstance(items[0], dict) else None
+            if first:
+                name = _short(first.get("project_name"), 14)
+                task = _short(first.get("text"), 30)
+                return f"{headline}。先看{name}：{task}。仅为当前记录，不代表最新变化。"
+            return f"{headline}。仅为当前记录，不代表最新变化。"
 
         projects = await self.list_projects()
         if any(marker in text for marker in PORTFOLIO_MARKERS):
