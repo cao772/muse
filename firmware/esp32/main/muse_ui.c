@@ -14,7 +14,7 @@ static muse_status_t status;
 static int64_t last_pong;
 static char device_name[65] = "muse-01";
 static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
-static lv_obj_t *record_button, *voice_status, *codex_status;
+static lv_obj_t *record_button, *voice_status, *codex_status, *attention_status;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
 static const char *previous_title;
 static lv_obj_t *detail_device, *detail_wifi, *detail_gateway, *detail_auth, *detail_heartbeat;
@@ -169,6 +169,9 @@ static void refresh(lv_timer_t *timer)
     if (input.voice_active) activity = input.recording || input.exporting ? "Listening" : input.voice_state;
     value(audio_state, activity, input.ready && !input.failed);
     lv_label_set_text(voice_status, input.voice_active ? activity : "");
+    if (input.attention_known && input.attention_count && input.voice_ready)
+        lv_label_set_text_fmt(attention_status, "Items needing you: %u", input.attention_count);
+    else lv_label_set_text(attention_status, "");
     if (input.codex_state) {
         lv_label_set_text_fmt(heartbeat, "CODEX %s / %s", input.codex_state, input.codex_profile);
         lv_label_set_text_fmt(codex_status, "CODEX %s / %s%s\n%s", input.codex_state,
@@ -207,6 +210,7 @@ void muse_ui_start(void)
     }
     label(home, "Muse", 0, 151, &lv_font_montserrat_36, FG);
     title = label(home, "USB setup", 0, 200, &lv_font_montserrat_20, FG);
+    attention_status = label(home, "", 0, 181, &lv_font_montserrat_14, MUTED);
     wifi = row(home, "Wi-Fi", 247);
     gateway = row(home, "Gateway", 279);
     auth = row(home, "Auth", 311);

@@ -54,7 +54,8 @@ def test_chatgpt_plan_streams_response_with_web_and_reasoning(tmp_path):
                     "event: response.output_text.delta\n"
                     'data: {"type":"response.output_text.delta","delta":"结果"}\n\n'
                     "event: response.completed\n"
-                    'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+                    'data: {"type":"response.completed","response":{"output":'
+                    '[{"type":"web_search_call","status":"completed"}]}}\n\n'
                 ),
                 headers={"content-type": "text/event-stream"},
             )
@@ -147,5 +148,59 @@ def test_chatgpt_plan_rejects_broad_credential_permissions(tmp_path):
         provider = ChatGPTPlanProvider(str(credential_path))
         with pytest.raises(ChatGPTPlanError, match="0600"):
             await provider.reply("问题")
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        'data: {"type":"response.failed"}\n\n',
+        'data: {"type":"response.incomplete"}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"未完成"}\n\n',
+        "data: broken-json\n\n",
+    ],
+)
+def test_chatgpt_incomplete_errors_do_not_return_partial_answers(tmp_path, terminal):
+    path = tmp_path / "credentials.json"
+    write_credentials(path)
+
+    def handler(request):
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"models": [{"slug": "gpt-test"}]})
+        return httpx.Response(200, text=terminal)
+
+    async def check():
+        provider = ChatGPTPlanProvider(str(path), transport=httpx.MockTransport(handler))
+        with pytest.raises(ChatGPTPlanError):
+            await provider.reply("问题")
+        assert not provider.last_used_web
+        assert not provider.last_model
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("web_completed", [True, False])
+def test_actual_search_requires_completed_search_event(tmp_path, web_completed):
+    path = tmp_path / "credentials.json"
+    write_credentials(path)
+
+    def handler(request):
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"models": [{"slug": "gpt-test"}]})
+        text = 'data: {"type":"response.web_search_call.completed"}\n\n' if web_completed else ""
+        text += 'data: {"type":"response.output_text.delta","delta":"回答"}\n\n'
+        text += 'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+        return httpx.Response(200, text=text)
+
+    async def check():
+        provider = ChatGPTPlanProvider(str(path), transport=httpx.MockTransport(handler))
+        if web_completed:
+            assert await provider.reply("搜索", use_web=True) == "回答"
+            assert provider.last_used_web
+        else:
+            with pytest.raises(ChatGPTPlanError, match="confirm"):
+                await provider.reply("搜索", use_web=True)
+            assert not provider.last_used_web
 
     asyncio.run(check())
