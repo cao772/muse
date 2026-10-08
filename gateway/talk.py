@@ -139,6 +139,12 @@ async def synthesize_bounded(tts, text):
         return await synthesize_bounded(tts, text[:mid]) + await synthesize_bounded(tts, text[mid:])
 
 
+def pack_playback(buffers):
+    # TTS phrase boundaries need not become USB upload pauses. Preserve every sample.
+    joined = b"".join(buffers)
+    return [joined[i : i + 160000] for i in range(0, len(joined), 160000)]
+
+
 async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=print):
     timings = {}
     turn_started = perf_counter()
@@ -170,6 +176,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     for chunk in speech_chunks(answer):
         buffers.extend(await synthesize_bounded(tts, chunk))
     timings["tts_seconds"] = round(perf_counter() - started, 3)
+    buffers = pack_playback(buffers)
     status("Playing")
     timings["before_play_seconds"] = round(perf_counter() - turn_started, 3)
     started = perf_counter()

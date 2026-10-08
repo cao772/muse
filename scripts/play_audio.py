@@ -43,9 +43,10 @@ def upload(device, pcm: bytes, volume: int = 80, on_playing=None) -> dict:
     if not pcm or len(pcm) > 160000 or len(pcm) % 2:
         raise ValueError("Playback requires 1–80000 mono int16 frames")
 
-    def send(message):
+    def send(message, *, flush=True):
         device.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
-        device.flush()
+        if flush:
+            device.flush()
 
     def wait(pattern, seconds=5):
         return wait_for(device, pattern, seconds)
@@ -62,10 +63,15 @@ def upload(device, pcm: bytes, volume: int = 80, on_playing=None) -> dict:
             }
         )
         wait(f"MUSE_SPK_READY bytes={len(pcm)}")
-        for offset in range(0, len(pcm), 768):
-            chunk = pcm[offset : offset + 768]
-            send({"play_data": offset, "data": base64.b64encode(chunk).decode()})
-            wait(f"MUSE_SPK_ACK offset={offset + len(chunk)}")
+        # A four-frame bounded window reduces USB round trips while requiring every ACK.
+        for base in range(0, len(pcm), 768 * 4):
+            offsets = list(range(base, min(base + 768 * 4, len(pcm)), 768))
+            for offset in offsets:
+                chunk = pcm[offset : offset + 768]
+                send({"play_data": offset, "data": base64.b64encode(chunk).decode()}, flush=False)
+            device.flush()
+            for offset in offsets:
+                wait(f"MUSE_SPK_ACK offset={min(offset + 768, len(pcm))}")
         send({"play_end": True})
         wait(f"MUSE_SPK_PLAYING volume={volume}")
         if on_playing:
