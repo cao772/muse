@@ -235,7 +235,13 @@ class CAOClient:
         if any(marker in text for marker in SUMMARY_MARKERS):
             priority_mode = any(
                 marker in text
-                for marker in ("今天最该做", "今天先做什么", "今天优先做什么", "先处理什么", "现在最重要")
+                for marker in (
+                    "今天最该做",
+                    "今天先做什么",
+                    "今天优先做什么",
+                    "先处理什么",
+                    "现在最重要",
+                )
             )
             mode = "priority" if priority_mode else "return"
             data = await self.work_brief(mode)
