@@ -14,6 +14,7 @@
 #include "freertos/event_groups.h"
 #include "nvs_flash.h"
 #include "muse_ui.h"
+#include "muse_pet_runtime.h"
 #include "muse_audio.h"
 
 #define WIFI_READY BIT0
@@ -153,11 +154,13 @@ void app_main(void)
     ESP_LOGI(TAG, "MUSE_STAGE5_BOOT; USB configuration required after every restart");
     state = xEventGroupCreate();
     assert(state);
+    // Initialize NVS before LVGL so pet and crops work even without Wi-Fi.
+    // Never erase the shared NVS partition or overwrite existing network keys.
+    ESP_ERROR_CHECK(nvs_flash_init());
+    muse_pet_runtime_init();
     muse_ui_start();
     read_configuration();
     muse_audio_start();
-    // Do not erase existing factory NVS automatically on incompatibility.
-    ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
