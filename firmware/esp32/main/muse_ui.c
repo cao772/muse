@@ -90,8 +90,13 @@ static void swipe_page(lv_event_t *event)
     lv_indev_t *indev = lv_indev_active();
     if (!indev) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT) next_page(event);
-    else if (dir == LV_DIR_RIGHT) previous_page(event);
+    if (dir == LV_DIR_LEFT) {
+        lv_indev_wait_release(indev);
+        next_page(event);
+    } else if (dir == LV_DIR_RIGHT) {
+        lv_indev_wait_release(indev);
+        previous_page(event);
+    }
 }
 
 static void show_details(lv_event_t *event)
