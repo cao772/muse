@@ -54,6 +54,13 @@ def test_high_difficulty_auto_routes_only_when_enabled():
     assert automatic.source == "chatgpt"
     assert automatic.explicit is False
 
+    project_risk = route_request(
+        "法规知识库现在有什么风险？",
+        chatgpt_enabled=True,
+        chatgpt_auto_enabled=True,
+    )
+    assert project_risk.source == "cao"
+
     disabled = route_request(
         text,
         chatgpt_enabled=True,
