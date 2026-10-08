@@ -37,3 +37,36 @@ def test_native_pet_garden_state(tmp_path):
     run = subprocess.run([str(binary)], check=False, capture_output=True, text=True, timeout=5)
     assert run.returncode == 0, run.stderr
     assert "pet_logic native tests PASS" in run.stdout
+
+
+def test_native_pet_animation(tmp_path):
+    """Both pose selection and authored RGB565 sprites run as real native C11."""
+    cc = shutil.which("cc")
+    if cc is None:
+        pytest.skip("A C11 compiler is required for the native sprite test")
+    root = Path(__file__).resolve().parents[1] / "firmware" / "esp32"
+    binary = tmp_path / "pet_animation_test"
+    build = subprocess.run(
+        [
+            cc,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic",
+            "-I",
+            str(root / "main"),
+            str(root / "main" / "muse_pet_animation.c"),
+            str(root / "tests" / "pet_animation_test.c"),
+            "-o",
+            str(binary),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert build.returncode == 0, build.stderr
+    run = subprocess.run([str(binary)], check=False, capture_output=True, text=True, timeout=5)
+    assert run.returncode == 0, run.stderr
+    assert "pet_animation native tests PASS" in run.stdout
