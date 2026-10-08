@@ -25,6 +25,27 @@ def transport(status=200):
             return httpx.Response(status, json={"detail": "private"})
         if request.url.path == "/api/v1/projects":
             return httpx.Response(200, json=PROJECTS)
+        if request.url.path == "/api/v1/personal-agent/work-brief":
+            assert request.headers["X-Muse-Token"] == "scoped-test"
+            mode = request.url.params.get("mode")
+            assert mode in {"return", "priority"}
+            return httpx.Response(
+                200,
+                json={
+                    "mode": mode,
+                    "headline": (
+                        "当前记录有1项需要你处理，另有1项下一步计划"
+                        if mode == "return"
+                        else "根据当前记录，优先核对需要你处理的项目"
+                    ),
+                    "items": [
+                        {"project_name": "法规知识库", "text": "受限站点仍需授权"}
+                    ],
+                    "snapshot_only": True,
+                    "comparison_available": False,
+                    "auto_execute": False,
+                },
+            )
         if request.url.path == "/api/v1/personal-agent/summary":
             return httpx.Response(
                 200,
@@ -79,7 +100,9 @@ def test_cao_requires_loopback_http():
 
 def test_portfolio_and_specific_project_answers_are_bounded():
     async def check():
-        client = cao.CAOClient("http://127.0.0.1:8080", transport=transport())
+        client = cao.CAOClient(
+            "http://127.0.0.1:8080", muse_token="scoped-test", transport=transport()
+        )
         portfolio = await client.answer("Muse，我现在有哪些项目？")
         assert "2个项目" in portfolio
         assert "法规知识库平台" in portfolio
@@ -100,7 +123,12 @@ def test_portfolio_and_specific_project_answers_are_bounded():
 
         recovery = await client.answer("Muse，我刚回来，错过什么了？")
         assert "有1项需要你处理" in recovery
-        assert "供应商试题需要终审" in recovery
+        assert "受限站点仍需授权" in recovery
+        assert "不代表最新变化" in recovery
+
+        today = await client.answer("今天先做什么？")
+        assert "优先核对" in today
+        assert "受限站点" in today
 
         loops = await client.answer("现在还有哪些事情悬着？")
         assert "3个未闭环事项" in loops
@@ -159,3 +187,47 @@ def test_invalid_project_payload_is_rejected():
             await client.list_projects()
 
     asyncio.run(check())
+
+
+def test_work_brief_no_token_never_falls_back_to_old_unprotected_summary():
+    async def check():
+        client = cao.CAOClient("http://127.0.0.1:8080", transport=transport())
+        with pytest.raises(cao.CAOError, match="scoped Muse token"):
+            await client.answer("我刚回来，错过什么了？")
+
+    asyncio.run(check())
+
+
+def test_work_brief_rejects_unverified_or_malformed_snapshot():
+    def fake(request):
+        assert request.url.path == "/api/v1/personal-agent/work-brief"
+        return httpx.Response(
+            200,
+            json={
+                "mode": "priority",
+                "snapshot_only": False,
+                "comparison_available": True,
+                "auto_execute": True,
+                "items": [],
+            },
+        )
+
+    async def check():
+        client = cao.CAOClient(
+            "http://127.0.0.1:8080",
+            muse_token="scoped-test",
+            transport=httpx.MockTransport(fake),
+        )
+        with pytest.raises(cao.CAOError):
+            await client.answer("今天先做什么？")
+
+    asyncio.run(check())
+
+
+def test_return_and_priority_are_grounded_routing_not_online_research():
+    from integrations.personal_agent import route_request
+
+    for phrase in ("我刚回来，错过什么了？", "今天先做什么？", "今天优先做什么？"):
+        route = route_request(phrase, chatgpt_enabled=True)
+        assert route.source == "cao"
+        assert route.use_web is False
