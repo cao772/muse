@@ -142,3 +142,61 @@ def test_capture_acknowledges_chunks_and_only_saves_verified_wav(
     assert [command["pcm_ack"] for command in writes[1:]] == [
         min(offset + 768, len(pcm)) for offset in range(0, len(pcm), 768)
     ]
+
+
+def test_actual_c_speech_endpoint(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    main = root / "firmware/esp32/main"
+    binary = tmp_path / "endpoint-test"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(main),
+            str(main / "muse_endpoint.c"),
+            str(root / "tests/firmware_endpoint.c"),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run([str(binary)], check=True, timeout=5)
+
+
+def test_adaptive_usb_transfer_accepts_actual_length_and_verifies_hash(audio_transfer):
+    pcm, begin, chunks, end = audio_transfer
+    transfer = PCMTransfer(20, variable=True)
+    transfer.feed(begin)
+    for line in chunks:
+        transfer.feed(line)
+    assert transfer.feed(end) and bytes(transfer.pcm) == pcm
+
+
+@pytest.mark.parametrize("size", [0, 1, 1280004, 3200000])
+def test_adaptive_transfer_still_rejects_invalid_declared_lengths(size):
+    transfer = PCMTransfer(20, variable=True)
+    with pytest.raises(ValueError):
+        transfer.feed(
+            f"MUSE_PCM_BEGIN rate=16000 channels=2 bits=16 bytes={size} sha256=" + "0" * 64
+        )
+
+
+def test_adaptive_capture_cancellation_preserves_next_serial_frame():
+    from scripts.capture_audio import CaptureCancelled, receive_pcm
+
+    class USB:
+        _muse_pending = b"AUDIO_CAPTURE_CANCELLED reason=limit\nVOICE_STATE Ready\n"
+
+        def write(self, data):
+            raise AssertionError("Cancelled audio must not be ACKed")
+
+    device = USB()
+    with pytest.raises(CaptureCancelled) as error:
+        receive_pcm(device)
+    assert error.value.reason == "limit"
+    assert device._muse_pending == b"VOICE_STATE Ready\n"

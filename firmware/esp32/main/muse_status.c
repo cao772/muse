@@ -1,3 +1,4 @@
+#include <string.h>
 #include "muse_status.h"
 
 void muse_status_apply(muse_status_t *s, muse_event_t event)
@@ -36,4 +37,15 @@ const char *muse_status_title(const muse_status_t *s)
     if (s->authenticated) return "Checking heartbeat";
     if (s->gateway) return "Verifying";
     return "Connecting";
+}
+
+
+const char *muse_execution_label(const char *state) {
+    if (!state) return "Unknown";
+    if (!strcmp(state, "starting") || !strcmp(state, "queued")) return "Starting";
+    if (!strcmp(state, "running")) return "Working";
+    if (!strcmp(state, "waiting")) return "Waiting";
+    if (!strcmp(state, "finished")) return "Ended";
+    if (!strcmp(state, "failed")) return "Failed";
+    return "Unknown";
 }

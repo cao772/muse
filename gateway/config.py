@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     stt_provider: Literal["mock", "mlx-whisper"] = "mock"
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     cao_enabled: bool = False
+    cao_execution_enabled: bool = False
+    cao_muse_token: SecretStr = SecretStr("")
     cao_base_url: str = "http://127.0.0.1:8080"
     cao_timeout_seconds: float = Field(default=5, ge=0.1, le=30)
     chatgpt_enabled: bool = False

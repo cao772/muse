@@ -1,3 +1,4 @@
+#include "muse_status.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -14,11 +15,13 @@
 #include "mbedtls/base64.h"
 #include "mbedtls/sha256.h"
 
+#include "muse_endpoint.h"
+
 #define BLOCK_FRAMES 1600
 static portMUX_TYPE audio_lock = portMUX_INITIALIZER_UNLOCKED;
 static muse_audio_snapshot_t snapshot;
 static unsigned int requested_seconds, pending_ack;
-static bool acknowledged;
+static bool acknowledged, requested_adaptive;
 static int64_t voice_deadline;
 static int16_t pcm[BLOCK_FRAMES * 2];
 static esp_codec_dev_handle_t speaker;
@@ -38,6 +41,7 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     *out = snapshot;
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
         out->voice_ready = false; out->voice_state = "Host offline";
+        if (out->codex_state) out->codex_state = "Unknown";
     }
     portEXIT_CRITICAL(&audio_lock);
 }
@@ -52,20 +56,31 @@ static void fail(void)
     ESP_LOGE("muse_audio", "AUDIO_ERROR (capture stopped)");
 }
 
-bool muse_audio_request_capture(unsigned int seconds)
+static bool request_capture(unsigned int seconds, bool adaptive)
 {
     portENTER_CRITICAL(&audio_lock);
-    bool ok = seconds >= 1 && seconds <= MUSE_AUDIO_MAX_SECONDS && snapshot.ready &&
+    bool ok = seconds >= 1 && seconds <= (adaptive ? MUSE_ENDPOINT_MAX_SECONDS : MUSE_AUDIO_MAX_SECONDS) && snapshot.ready &&
               !snapshot.recording && !snapshot.exporting && !snapshot.receiving &&
               !snapshot.playing && !requested_seconds &&
               (!snapshot.voice_active || (snapshot.voice_ready && esp_timer_get_time() <= voice_deadline));
     if (ok) {
         requested_seconds = seconds;
+        requested_adaptive = adaptive;
         if (snapshot.voice_active) { snapshot.voice_ready = false; snapshot.voice_state = "Listening"; }
     }
     portEXIT_CRITICAL(&audio_lock);
     if (ok && snapshot.voice_active) ESP_LOGI("muse_audio", "VOICE_STATE Listening");
     return ok;
+}
+
+bool muse_audio_request_capture(unsigned int seconds)
+{
+    return request_capture(seconds, false);
+}
+
+bool muse_audio_request_auto_capture(void)
+{
+    return request_capture(MUSE_ENDPOINT_MAX_SECONDS, true);
 }
 
 static void command_task(void *arg)
@@ -86,6 +101,34 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        cJSON *codex = cJSON_GetObjectItemCaseSensitive(obj, "codex");
+        if (cJSON_IsObject(codex)) {
+            cJSON *cs = cJSON_GetObjectItemCaseSensitive(codex, "state");
+            cJSON *cp = cJSON_GetObjectItemCaseSensitive(codex, "profile");
+            cJSON *ct = cJSON_GetObjectItemCaseSensitive(codex, "title");
+            const char *state = NULL, *profile = NULL;
+            if (cJSON_IsString(cs)) {
+                const char *s = cs->valuestring;
+                state = muse_execution_label(s);
+            }
+            if (cJSON_IsString(cp)) {
+                const char *s = cp->valuestring;
+                profile = !strcmp(s, "fast") ? "fast" : !strcmp(s, "strong") ? "strong" :
+                          !strcmp(s, "balanced") ? "balanced" : NULL;
+            }
+            if (state && profile) {
+                portENTER_CRITICAL(&audio_lock);
+                snapshot.codex_state = state; snapshot.codex_profile = profile;
+                snapshot.codex_needs_user = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(codex, "needs_user"));
+                size_t n = 0;
+                if (cJSON_IsString(ct)) {
+                    for (const char *s = ct->valuestring; *s && n < sizeof(snapshot.codex_title) - 1; ++s)
+                        if (*s >= 32 && *s <= 126) snapshot.codex_title[n++] = *s;
+                }
+                snapshot.codex_title[n] = 0;
+                portEXIT_CRITICAL(&audio_lock);
+            }
+        }
         cJSON *voice = cJSON_GetObjectItemCaseSensitive(obj, "voice_state");
         if (cJSON_IsString(voice)) {
             const char *state = !strcmp(voice->valuestring, "Ready") ? "Ready" :
@@ -364,11 +407,15 @@ static void capture_task(void *arg)
     uint8_t *recording = NULL;
     size_t target = 0, used = 0;
     int64_t started = 0, last_report = 0;
+    bool adaptive = false;
+    float noise = 40;
+    muse_endpoint_t endpoint;
     for (;;) {
         unsigned int seconds = 0;
         portENTER_CRITICAL(&audio_lock);
         if (requested_seconds) {
             seconds = requested_seconds;
+            adaptive = requested_adaptive;
             requested_seconds = 0;
             snapshot.recording = true;
         }
@@ -379,7 +426,8 @@ static void capture_task(void *arg)
             if (!recording) { fail(); vTaskDelete(NULL); return; }
             used = 0;
             started = esp_timer_get_time();
-            ESP_LOGI("muse_audio", "AUDIO_RECORDING seconds=%u", seconds);
+            muse_endpoint_init(&endpoint, noise);
+            ESP_LOGI("muse_audio", "AUDIO_RECORDING seconds=%u mode=%s", seconds, adaptive ? "adaptive" : "fixed");
         }
         if (esp_codec_dev_read(mic, pcm, sizeof(pcm)) != ESP_CODEC_DEV_OK) {
             if (recording) { memset(recording, 0, target); free(recording); }
@@ -390,6 +438,8 @@ static void capture_task(void *arg)
         portENTER_CRITICAL(&audio_lock);
         snapshot.stats = stats;
         portEXIT_CRITICAL(&audio_lock);
+        float level = stats.rms[0] > stats.rms[1] ? stats.rms[0] : stats.rms[1];
+        if (!recording && level < 300) noise = noise * 0.95f + level * 0.05f;
         int64_t now = esp_timer_get_time();
         if (now - last_report >= 2000000) {
             ESP_LOGI("muse_audio", "AUDIO_STATS L_peak=%u L_rms=%.1f L_clip=%u R_peak=%u R_rms=%.1f R_clip=%u equal=%u/%u",
@@ -402,7 +452,16 @@ static void capture_task(void *arg)
             size_t amount = target - used < sizeof(pcm) ? target - used : sizeof(pcm);
             memcpy(recording + used, pcm, amount);
             used += amount;
-            if (used == target) {
+            muse_endpoint_result_t endpoint_result = adaptive ? muse_endpoint_push(&endpoint, level, amount / 4) : MUSE_ENDPOINT_LISTEN;
+            if (adaptive && (endpoint_result == MUSE_ENDPOINT_EMPTY || endpoint_result == MUSE_ENDPOINT_LIMIT)) {
+                memset(recording, 0, target); free(recording); recording = NULL;
+                portENTER_CRITICAL(&audio_lock);
+                snapshot.recording = false;
+                portEXIT_CRITICAL(&audio_lock);
+                ESP_LOGW("muse_audio", "AUDIO_CAPTURE_CANCELLED reason=%s", endpoint_result == MUSE_ENDPOINT_EMPTY ? "no_speech" : "limit");
+                continue;
+            }
+            if (used == target || endpoint_result == MUSE_ENDPOINT_DONE) {
                 ESP_LOGI("muse_audio", "AUDIO_CAPTURED frames=%u elapsed_ms=%lld", (unsigned)(used / 4),
                          (long long)((now - started) / 1000));
                 portENTER_CRITICAL(&audio_lock);

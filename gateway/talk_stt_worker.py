@@ -36,7 +36,7 @@ def main():
             },
         )
         return
-    data = sys.stdin.buffer.read(1048577)
+    data = sys.stdin.buffer.read(2097153)
     audio = stereo_wav_to_mono(data)
     text = MLXWhisperSTT(sys.argv[1])._transcribe(audio)
     print(json.dumps({"text": text}, ensure_ascii=False), flush=True)

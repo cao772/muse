@@ -14,7 +14,7 @@ static muse_status_t status;
 static int64_t last_pong;
 static char device_name[65] = "muse-01";
 static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
-static lv_obj_t *record_button, *voice_status;
+static lv_obj_t *record_button, *voice_status, *codex_status;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
 static const char *previous_title;
 static lv_obj_t *detail_device, *detail_wifi, *detail_gateway, *detail_auth, *detail_heartbeat;
@@ -71,7 +71,7 @@ static void show_audio(lv_event_t *event)
 
 static void record_audio(lv_event_t *event)
 {
-    if (muse_audio_request_capture(5)) ESP_LOGI("muse_ui", "UI_AUDIO_RECORD_REQUEST");
+    if (muse_audio_request_auto_capture()) ESP_LOGI("muse_ui", "UI_AUDIO_RECORD_REQUEST");
     else ESP_LOGI("muse_ui", "UI_AUDIO_RECORD_REJECTED");
 }
 
@@ -169,6 +169,11 @@ static void refresh(lv_timer_t *timer)
     if (input.voice_active) activity = input.recording || input.exporting ? "Listening" : input.voice_state;
     value(audio_state, activity, input.ready && !input.failed);
     lv_label_set_text(voice_status, input.voice_active ? activity : "");
+    if (input.codex_state) {
+        lv_label_set_text_fmt(heartbeat, "CODEX %s / %s", input.codex_state, input.codex_profile);
+        lv_label_set_text_fmt(codex_status, "CODEX %s / %s%s\n%s", input.codex_state,
+                             input.codex_profile, input.codex_needs_user ? " / Needs you" : "", input.codex_title);
+    } else lv_label_set_text(codex_status, "");
     bool enabled = input.ready && !input.failed && !input.recording && !input.exporting &&
                    !input.receiving && !input.playing && (!input.voice_active || input.voice_ready);
     if (enabled) lv_obj_remove_state(record_button, LV_STATE_DISABLED);
@@ -224,7 +229,8 @@ void muse_ui_start(void)
     detail_gateway = row(details, "Gateway", 236);
     detail_auth = row(details, "Auth", 275);
     detail_heartbeat = row(details, "Heartbeat", 314);
-    button(details, "Back", 382, show_home);
+    codex_status = label(details, "", 0, 347, &lv_font_montserrat_14, GREEN);
+    button(details, "Back", 397, show_home);
     audio_page = screen();
     label(audio_page, "Audio Input", 0, 60, &lv_font_montserrat_24, FG);
     label(audio_page, "16 kHz / 16 bit / Stereo", 0, 105, &lv_font_montserrat_16, MUTED);
@@ -244,7 +250,7 @@ void muse_ui_start(void)
     audio_clipping = label(audio_page, "Clipping L 0 / R 0 (100ms)", 0, 322,
                            &lv_font_montserrat_16, MUTED);
     audio_state = label(audio_page, "Waiting for USB setup", 0, 348, &lv_font_montserrat_16, MUTED);
-    record_button = button(audio_page, "Record 5s", 382, record_audio);
+    record_button = button(audio_page, "Speak", 382, record_audio);
     lv_obj_set_width(record_button, 128);
     lv_obj_align(record_button, LV_ALIGN_TOP_MID, -70, 382);
     lv_obj_t *back_button = button(audio_page, "Back", 382, show_home);

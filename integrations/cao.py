@@ -84,6 +84,7 @@ class CAOClient:
                 timeout=self.timeout_seconds,
                 transport=self.transport,
                 follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.get(self.base_url + path)
             if response.status_code != 200:
@@ -159,7 +160,7 @@ class CAOClient:
         score, project = ranked[0]
         if score < 0.62:
             return None
-        if len(ranked) > 1 and score < 0.9 and score - ranked[1][0] < 0.08:
+        if len(ranked) > 1 and score - ranked[1][0] < 0.08:
             return None
         return project
 
