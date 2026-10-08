@@ -1,4 +1,5 @@
 """Compile the exact ESP32-independent pet model with host C11; no mocks."""
+
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,8 +34,6 @@ def test_native_pet_garden_state(tmp_path):
         timeout=20,
     )
     assert build.returncode == 0, build.stderr
-    run = subprocess.run(
-        [str(binary)], check=False, capture_output=True, text=True, timeout=5
-    )
+    run = subprocess.run([str(binary)], check=False, capture_output=True, text=True, timeout=5)
     assert run.returncode == 0, run.stderr
     assert "pet_logic native tests PASS" in run.stdout
