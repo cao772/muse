@@ -15,6 +15,12 @@ static int64_t last_pong;
 static char device_name[65] = "muse-01";
 static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
 static lv_obj_t *record_button, *voice_status, *codex_status;
+static lv_obj_t *task_page, *inbox_page;
+static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
+static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat;
+enum { PAGE_HOME, PAGE_AUDIO, PAGE_TASK, PAGE_INBOX, PAGE_NETWORK, PAGE_TOTAL };
+static lv_obj_t *pages[PAGE_TOTAL];
+static unsigned int active_page;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
 static const char *previous_title;
 static lv_obj_t *detail_device, *detail_wifi, *detail_gateway, *detail_auth, *detail_heartbeat;
@@ -57,16 +63,45 @@ static void touch(lv_event_t *event)
              point.y < 233 ? "top-" : "bottom-", point.x < 233 ? "left" : "right");
 }
 
+static const char *page_names[PAGE_TOTAL] = {
+    "home", "audio", "tasks", "inbox", "network",
+};
+
+static void load_page(unsigned int index)
+{
+    if (index >= PAGE_TOTAL || !pages[index]) return;
+    active_page = index;
+    lv_screen_load(pages[index]);
+    ESP_LOGI("muse_ui", "UI_PAGE %s", page_names[index]);
+}
+
+static void previous_page(lv_event_t *event)
+{
+    load_page((active_page + PAGE_TOTAL - 1) % PAGE_TOTAL);
+}
+
+static void next_page(lv_event_t *event)
+{
+    load_page((active_page + 1) % PAGE_TOTAL);
+}
+
+static void swipe_page(lv_event_t *event)
+{
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_LEFT) next_page(event);
+    else if (dir == LV_DIR_RIGHT) previous_page(event);
+}
+
 static void show_details(lv_event_t *event)
 {
-    lv_screen_load(details);
-    ESP_LOGI("muse_ui", "UI_PAGE details");
+    load_page(PAGE_NETWORK);
 }
 
 static void show_audio(lv_event_t *event)
 {
-    lv_screen_load(audio_page);
-    ESP_LOGI("muse_ui", "UI_PAGE audio");
+    load_page(PAGE_AUDIO);
 }
 
 static void record_audio(lv_event_t *event)
@@ -77,8 +112,7 @@ static void record_audio(lv_event_t *event)
 
 static void show_home(lv_event_t *event)
 {
-    lv_screen_load(home);
-    ESP_LOGI("muse_ui", "UI_PAGE home");
+    load_page(PAGE_HOME);
 }
 
 static lv_obj_t *screen(void)
@@ -89,6 +123,7 @@ static lv_obj_t *screen(void)
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(obj, touch, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(obj, swipe_page, LV_EVENT_GESTURE, NULL);
     return obj;
 }
 
@@ -114,6 +149,35 @@ static lv_obj_t *row(lv_obj_t *parent, const char *name, int y)
     lv_obj_t *value = label(parent, "Waiting", 0, y, &lv_font_montserrat_18, MUTED);
     lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -100, y);
     return value;
+}
+
+static void navigation(lv_obj_t *page, unsigned int index)
+{
+    lv_obj_t *previous = lv_button_create(page);
+    lv_obj_set_size(previous, 36, 30);
+    lv_obj_align(previous, LV_ALIGN_TOP_MID, -68, 24);
+    lv_obj_set_style_radius(previous, 15, 0);
+    lv_obj_set_style_shadow_width(previous, 0, 0);
+    lv_obj_set_style_bg_color(previous, lv_color_hex(0x293E49), 0);
+    lv_obj_add_flag(previous, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(previous, previous_page, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *back = label(previous, "<", 0, 0, &lv_font_montserrat_16, FG);
+    lv_obj_center(back);
+
+    char counter[20];
+    snprintf(counter, sizeof(counter), "%u / %u", index + 1, PAGE_TOTAL);
+    label(page, counter, 0, 30, &lv_font_montserrat_14, MUTED);
+
+    lv_obj_t *next = lv_button_create(page);
+    lv_obj_set_size(next, 36, 30);
+    lv_obj_align(next, LV_ALIGN_TOP_MID, 68, 24);
+    lv_obj_set_style_radius(next, 15, 0);
+    lv_obj_set_style_shadow_width(next, 0, 0);
+    lv_obj_set_style_bg_color(next, lv_color_hex(0x293E49), 0);
+    lv_obj_add_flag(next, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(next, next_page, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *forward = label(next, ">", 0, 0, &lv_font_montserrat_16, FG);
+    lv_obj_center(forward);
 }
 
 static void value(lv_obj_t *obj, const char *text, bool ready)
@@ -171,6 +235,25 @@ static void refresh(lv_timer_t *timer)
     lv_label_set_text(voice_status, input.voice_active ? activity : "");
     if (input.attention_known && input.attention_count && input.voice_ready)
         lv_label_set_text_fmt(voice_status, "Ready / Items needing you: %u", input.attention_count);
+    if (input.codex_state) {
+        value(task_state, input.codex_state, !input.codex_needs_user);
+        value(task_profile, input.codex_profile ? input.codex_profile : "Unknown", true);
+        value(task_owner, input.codex_needs_user ? "Needs your input" : "Monitor only",
+              !input.codex_needs_user);
+        lv_label_set_text(task_name, input.codex_title[0] ? input.codex_title : "Unnamed task");
+    } else {
+        value(task_state, "No active task", false);
+        value(task_profile, "--", false);
+        value(task_owner, "No execution snapshot", false);
+        lv_label_set_text(task_name, "Waiting for CAO");
+    }
+    if (input.attention_known) {
+        lv_label_set_text_fmt(inbox_count, "%u pending", input.attention_count);
+        value(inbox_sync, "CAO snapshot via USB", true);
+    } else {
+        lv_label_set_text(inbox_count, "--");
+        value(inbox_sync, "CAO not available / stale", false);
+    }
     if (input.codex_state) {
         lv_label_set_text_fmt(heartbeat, "CODEX %s / %s", input.codex_state, input.codex_profile);
         lv_label_set_text_fmt(codex_status, "CODEX %s / %s%s\n%s", input.codex_state,
@@ -258,9 +341,47 @@ void muse_ui_start(void)
     lv_obj_t *back_button = button(audio_page, "Back", 382, show_home);
     lv_obj_set_width(back_button, 128);
     lv_obj_align(back_button, LV_ALIGN_TOP_MID, 70, 382);
+    task_page = screen();
+    label(task_page, "Codex / Projects", 0, 69, &lv_font_montserrat_24, FG);
+    label(task_page, "Execution", 0, 118, &lv_font_montserrat_16, MUTED);
+    task_state = label(task_page, "No active task", 0, 152, &lv_font_montserrat_20, GREEN);
+    label(task_page, "Model profile", 0, 204, &lv_font_montserrat_16, MUTED);
+    task_profile = label(task_page, "--", 0, 234, &lv_font_montserrat_20, FG);
+    task_owner = label(task_page, "No execution snapshot", 0, 276,
+                       &lv_font_montserrat_16, MUTED);
+    task_name = label(task_page, "Waiting for CAO", 0, 312, &lv_font_montserrat_16, MUTED);
+    lv_obj_set_width(task_name, 280);
+    lv_label_set_long_mode(task_name, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(task_name, LV_TEXT_ALIGN_CENTER, 0);
+    label(task_page, "Ended does not mean accepted", 0, 348,
+          &lv_font_montserrat_14, MUTED);
+    button(task_page, "Speak", 382, show_audio);
+
+    inbox_page = screen();
+    label(inbox_page, "Notifications", 0, 69, &lv_font_montserrat_24, FG);
+    label(inbox_page, "Projects needing you", 0, 126, &lv_font_montserrat_16, MUTED);
+    inbox_count = label(inbox_page, "--", 0, 160, &lv_font_montserrat_24, GREEN);
+    inbox_sync = label(inbox_page, "CAO not available", 0, 202,
+                       &lv_font_montserrat_14, MUTED);
+    label(inbox_page, "WeChat", 0, 254, &lv_font_montserrat_20, FG);
+    inbox_wechat = label(inbox_page, "Not linked to Muse", 0, 292,
+                        &lv_font_montserrat_16, MUTED);
+    label(inbox_page, "No real-time message feed yet", 0, 326,
+          &lv_font_montserrat_14, MUTED);
+    button(inbox_page, "Audio Input", 382, show_audio);
+
+    pages[PAGE_HOME] = home;
+    pages[PAGE_AUDIO] = audio_page;
+    pages[PAGE_TASK] = task_page;
+    pages[PAGE_INBOX] = inbox_page;
+    pages[PAGE_NETWORK] = details;
+    for (unsigned int page = 0; page < PAGE_TOTAL; ++page) {
+        navigation(pages[page], page);
+    }
+    active_page = PAGE_HOME;
     lv_timer_create(refresh, 200, NULL);
     refresh(NULL);
-    lv_screen_load(home);
+    load_page(PAGE_HOME);
     bsp_display_unlock();
     ESP_LOGI("muse_ui", "UI_READY width=%d height=%d", (int)lv_display_get_horizontal_resolution(display),
              (int)lv_display_get_vertical_resolution(display));
