@@ -1,2 +1,2 @@
-idf_component_register(SRCS "muse_main.c" "muse_ui.c" "muse_status.c" "muse_audio.c" "muse_audio_stats.c" "muse_endpoint.c" "muse_pet_logic.c" "muse_pet_runtime.c" INCLUDE_DIRS "."
+idf_component_register(SRCS "muse_main.c" "muse_ui.c" "muse_status.c" "muse_audio.c" "muse_audio_stats.c" "muse_endpoint.c" "muse_pet_logic.c" "muse_pet_runtime.c" "muse_pet_animation.c" INCLUDE_DIRS "."
     REQUIRES esp_wifi esp_event esp_netif nvs_flash esp_driver_usb_serial_jtag json esp_timer mbedtls)
