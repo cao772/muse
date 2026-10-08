@@ -1,7 +1,7 @@
 """Compile the exact ESP32-independent pet model with host C11; no mocks."""
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
