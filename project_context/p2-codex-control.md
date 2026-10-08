@@ -44,3 +44,14 @@ CAO worktree: /Users/caoyh/.codex/worktrees/cao-p2/cao (codex/muse-codex-control
 实测 HYETEC_705_5G 在 45 秒内未获取 IP。切换手机热点后 Mac 与板子连通，重新下发本地忽略配置；Wi-Fi、鉴权 WebSocket、hello、三次 pong 全通过。未将热点凭据或 device token 写入文档。CAO Personal API 返回唯一授权测试仓库及三档 profile，Host 已恢复。
 
 整合后验证 Muse 150 passed，Ruff / format；CAO 334 passed，前端 40 passed。尚未完成本轮新版 3 秒停顿及整合后的语音控制实机验收，不把旧固定 5 秒验收冒充新版结果。
+
+
+## 2026-10-08 整合后本机执行验收
+
+Muse PR #3 (`bc1af1c`) 与 CAO PR #30 (`4e08796`) 已整合到两个 P2 子分支；没有合并正式分支。P2 Draft PR 为 Muse #5 / CAO #31。整合后的 Gateway、firmware 及 CAO CI 已全部通过：Muse 150 项、CAO 334 项 Python / 40 项前端测试。
+
+通过实际 Muse 执行路由启动专用测试仓库任务 `5dc29cbe-f19c-453a-811b-638d7bcd75cf`，解析模型为 fast / gpt-6-luna / low。启动响应 4.611 秒，模型与推理查询约 0.02 秒；启动后首次查询仍可能暂时 Unknown，随后真实报告转为 Waiting。新增减法函数与 4 项测试；同一会话追加整数类型约束后 6 项通过；继续执行并补边界后 9 项通过。测试查询返回实际 9 passed / 0 failed；独立 `python3 -m unittest -v` 复验一致，测试仓库 HEAD 仍 `fec4047`，只有两个未跟踪实现/测试文件，没有自动 Git 提交。Waiting 表示等待下一步，formal_completion 仍 false。
+
+本次 Superset Host 离线原因是开发版监听启动父进程：临时启动命令结束后 Host 自动退出。现以独立常驻父进程等待 Electron 子进程结束，保留原开发数据目录与受控补丁；没有修改上游退出策略，也没有重新启动先前高占用的开发 API。Gateway / Voice 以独立会话启动，日志只在本机临时目录。Mac 睡眠、断电或退出这些服务后，仍需重新核验 Host 与设备 RAM 配置，不自动重放任务。
+
+3 秒连续静音录音已实测 13.2 秒 / 844800 字节，USB 完整校验并回 Ready；用户随后确认“这个没问题”。该轻量接收验证没有加载模型或执行开发任务。整合后的新版板端语音开发闭环正在统一验收，未提前标为通过。
