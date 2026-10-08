@@ -91,6 +91,28 @@ COMMERCE_MARKERS = (
     "买个",
 )
 
+PROJECT_FACT_STRONG_MARKERS = (
+    "项目",
+    "进展",
+    "做到哪",
+    "做到哪里",
+    "下一步",
+    "待办",
+    "当前阶段",
+    "当前状态",
+    "开发到哪",
+    "完成了吗",
+    "完成了没",
+    "我刚回来",
+    "错过什么",
+    "需要我处理",
+    "待我确认",
+    "悬着",
+    "未完成的事",
+    "今天最该做",
+    "现在最重要",
+)
+
 REFLECTION_PROMPT = (
     "在我最近反复讨论的问题背后，有没有一个更深的问题，是我一直在绕着它走，却没有真正问出来的？"
 )
@@ -138,7 +160,9 @@ def route_request(
         return RouteDecision("codex", "explicit_codex_action", explicit=True)
 
     if looks_like_project_query(text):
-        return RouteDecision("cao", "project_fact_query", explicit=True)
+        score = difficulty_score(text)
+        if _contains(text, PROJECT_FACT_STRONG_MARKERS) or score < 4:
+            return RouteDecision("cao", "project_fact_query", explicit=True)
 
     if _contains(text, COMMERCE_MARKERS):
         return RouteDecision("commerce", "explicit_commerce_action", explicit=True)
