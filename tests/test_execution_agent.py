@@ -257,3 +257,42 @@ def test_continue_stays_on_existing_session_and_never_starts_without_context():
         assert "high" in await router.reply("当前 reasoning 是什么？")
 
     asyncio.run(check())
+
+
+@pytest.mark.parametrize("active", [False, True])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "用 GPT 深度研究 Codex 的安全设计",
+        "用 GPT 看看 Codex 的工具路由还漏了什么",
+        "Codex 的架构怎么设计？",
+        "用 GPT 研究如何让 Codex 写代码",
+        "用 GPT 研究追加反馈机制",
+    ],
+)
+def test_codex_research_topic_is_not_execution_query(active, text):
+    assert intent(text, active) is None
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_actual_codex_progress_remains_execution_query(active):
+    assert intent("Codex 现在做到哪了？", active) == "query"
+
+
+def test_codex_research_reaches_all_gpt_with_active_execution():
+    from integrations.personal_provider import PersonalAgentProvider
+
+    class Research:
+        async def reply(self, text, **kwargs):
+            return "实际研究边界"
+
+    async def check():
+        execution = Execution()
+        brain = PersonalAgentProvider(Fallback(), cao=Projects(), chatgpt=Research())
+        router = PersonalAgentRouter(brain, Projects(), execution)
+        router.active_id = str(uuid4())
+        assert await router.reply("用 GPT 深度研究 Codex 的安全设计") == "实际研究边界"
+        assert router.last_source == "chatgpt" and not execution.posts
+        assert "等待" in await router.reply("Codex 现在做到哪了？")
+
+    asyncio.run(check())

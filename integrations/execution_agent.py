@@ -25,6 +25,8 @@ def intent(text: str, active=False) -> str | None:
     compact = re.sub(r"\s+", "", lower)
     for alias in ("code x", "codecs", "科德克斯", "扣得克斯"):
         lower = lower.replace(alias, "codex")
+    if re.search(r"用\s*gpt|让\s*gpt", lower):
+        return None
     if any(
         x in lower
         for x in (
@@ -44,10 +46,32 @@ def intent(text: str, active=False) -> str | None:
         for x in ("让codex", "让 codex", "启动codex", "启动 codex", "开始开发", "启动开发任务")
     ):
         return "launch"
+    # Mentioning Codex in a research topic is not an execution query.
+    if re.search(r"用\s*gpt|研究|安全设计|工具路由|架构|复杂权衡", lower):
+        return None
     if any(x in text for x in PROFILES) or "高推理" in text or "低推理" in text:
         return "profile"
     if (
-        "codex" in lower
+        (
+            "codex" in lower
+            and any(
+                x in lower
+                for x in (
+                    "做到哪",
+                    "进度",
+                    "状态",
+                    "模型",
+                    "推理",
+                    "reasoning",
+                    "profile",
+                    "测试过",
+                    "测试结果",
+                    "阻塞",
+                    "结束了吗",
+                    "完成了吗",
+                )
+            )
+        )
         or any(
             x in compact
             for x in ("当前用什么模型", "当前模型", "当前推理", "当前reasoning", "当前profile")

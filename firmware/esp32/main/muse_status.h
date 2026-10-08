@@ -12,3 +12,5 @@ typedef struct {
 
 void muse_status_apply(muse_status_t *status, muse_event_t event);
 const char *muse_status_title(const muse_status_t *status);
+
+const char *muse_execution_label(const char *state);

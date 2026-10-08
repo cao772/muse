@@ -1,3 +1,4 @@
+#include "muse_status.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -108,10 +109,7 @@ static void command_task(void *arg)
             const char *state = NULL, *profile = NULL;
             if (cJSON_IsString(cs)) {
                 const char *s = cs->valuestring;
-                state = !strcmp(s, "starting") || !strcmp(s, "queued") ? "Starting" :
-                        !strcmp(s, "running") ? "Working" : !strcmp(s, "waiting") ? "Waiting" :
-                        !strcmp(s, "finished") ? "Done" : !strcmp(s, "failed") ? "Failed" :
-                        !strcmp(s, "unknown") ? "Unknown" : NULL;
+                state = muse_execution_label(s);
             }
             if (cJSON_IsString(cp)) {
                 const char *s = cp->valuestring;

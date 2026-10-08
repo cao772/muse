@@ -4,6 +4,11 @@
 
 int main(void)
 {
+    assert(strcmp(muse_execution_label("finished"), "Ended") == 0);
+    assert(strcmp(muse_execution_label("running"), "Working") == 0);
+    assert(strcmp(muse_execution_label(NULL), "Unknown") == 0);
+    assert(strcmp(muse_execution_label("untrusted"), "Unknown") == 0);
+
     muse_status_t s = {0};
     assert(strcmp(muse_status_title(&s), "USB setup") == 0);
     // A stale pong must not make an unauthenticated device appear connected.
