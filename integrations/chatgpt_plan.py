@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import json
 import os
+import re
 import stat
 from pathlib import Path
 from typing import Any
@@ -102,6 +103,8 @@ class ChatGPTPlanProvider:
                 "ChatGPT plan is not connected; run the local sign-in command first"
             ) from None
 
+        if not isinstance(data, dict):
+            raise ChatGPTPlanError("ChatGPT plan credentials are invalid")
         required = ("client_id", "access_token", "refresh_token", "expires_in", "saved_at")
         if any(not data.get(key) for key in required):
             raise ChatGPTPlanError("ChatGPT plan credentials are invalid")
@@ -116,7 +119,8 @@ class ChatGPTPlanProvider:
             os.chmod(self.credential_path.parent, 0o700)
         temp = self.credential_path.with_suffix(self.credential_path.suffix + ".tmp")
         payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-        temp.write_text(payload)
+        with open(temp, "w", opener=lambda path, flags: os.open(path, flags, 0o600)) as handle:
+            handle.write(payload)
         if os.name != "nt":
             os.chmod(temp, 0o600)
         temp.replace(self.credential_path)
@@ -246,6 +250,8 @@ class ChatGPTPlanProvider:
     ) -> str:
         if reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("reasoning_effort must be low, medium or high")
+        self.last_used_web = False
+        self.last_model = ""
         credentials = await self._credentials()
         model = await self._select_model(str(credentials["access_token"]))
         instructions = (
@@ -279,63 +285,85 @@ class ChatGPTPlanProvider:
             ]
             payload["tool_choice"] = "required"
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout_seconds,
-                transport=self.transport,
-                follow_redirects=False,
-            ) as client:
-                response = await client.post(
-                    API_BASE + "/responses",
-                    headers={
-                        "Authorization": "Bearer " + str(credentials["access_token"]),
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-            if response.status_code != 200:
-                raise ChatGPTPlanError(f"ChatGPT plan request failed (HTTP {response.status_code})")
-            body = response.text
-        except ChatGPTPlanError:
-            raise
-        except Exception:
-            raise ChatGPTPlanError("ChatGPT plan request failed") from None
-
+        self.last_used_web = False
+        self.last_model = ""
         deltas: list[str] = []
         completed_text = ""
         saw_completed = False
-        for line in body.splitlines():
-            if not line.startswith("data:"):
-                continue
-            raw = line[5:].strip()
-            if not raw or raw == "[DONE]":
-                continue
-            try:
-                event = json.loads(raw)
-            except ValueError:
-                continue
-            if not isinstance(event, dict):
-                continue
-            event_type = event.get("type")
-            if event_type == "response.output_text.delta":
-                delta = event.get("delta")
-                if isinstance(delta, str):
-                    deltas.append(delta)
-            elif event_type == "response.completed":
-                saw_completed = True
-                completed_text = _response_text_from_completed(event)
-            elif event_type in {"response.failed", "response.incomplete", "error"}:
-                raise ChatGPTPlanError("ChatGPT plan request did not complete")
+        searched = False
+        received_bytes = 0
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds,
+                    transport=self.transport,
+                    follow_redirects=False,
+                ) as client:
+                    async with client.stream(
+                        "POST",
+                        API_BASE + "/responses",
+                        headers={"Authorization": "Bearer " + str(credentials["access_token"])},
+                        json=payload,
+                    ) as response:
+                        if response.status_code != 200:
+                            raise ChatGPTPlanError(
+                                f"ChatGPT plan request failed (HTTP {response.status_code})"
+                            )
+                        async for line in response.aiter_lines():
+                            received_bytes += len(line.encode())
+                            if received_bytes > 2_000_000:
+                                raise ChatGPTPlanError("ChatGPT plan stream exceeded size limit")
+                            if not line.startswith("data:"):
+                                continue
+                            raw = line[5:].strip()
+                            if not raw or raw == "[DONE]":
+                                continue
+                            try:
+                                event = json.loads(raw)
+                            except ValueError:
+                                raise ChatGPTPlanError(
+                                    "ChatGPT plan stream contained invalid data"
+                                ) from None
+                            if not isinstance(event, dict):
+                                raise ChatGPTPlanError("ChatGPT plan stream contained invalid data")
+                            event_type = event.get("type")
+                            if event_type == "response.output_text.delta":
+                                delta = event.get("delta")
+                                if isinstance(delta, str):
+                                    deltas.append(delta)
+                            elif event_type == "response.web_search_call.completed":
+                                searched = True
+                            elif event_type == "response.completed":
+                                saw_completed = True
+                                completed_text = _response_text_from_completed(event)
+                                result = event.get("response") or {}
+                                searched = searched or any(
+                                    isinstance(item, dict)
+                                    and item.get("type") == "web_search_call"
+                                    and item.get("status") == "completed"
+                                    for item in result.get("output") or []
+                                )
+                            elif event_type in {"response.failed", "response.incomplete", "error"}:
+                                raise ChatGPTPlanError("ChatGPT plan request did not complete")
+        except ChatGPTPlanError:
+            raise
+        except Exception:
+            raise ChatGPTPlanError("ChatGPT plan request failed or timed out") from None
 
         answer = "".join(deltas).strip() or completed_text.strip()
         if not saw_completed:
             raise ChatGPTPlanError("ChatGPT plan stream ended without a completed response")
+        if use_web and not searched:
+            raise ChatGPTPlanError("ChatGPT response did not confirm a completed web search")
         if not answer:
             raise ChatGPTPlanError("ChatGPT plan returned an empty response")
+        if self.voice_mode:
+            answer = re.sub(r"\[([^]]+)\]\(https?://[^)]+\)", r"\1", answer)
+            answer = re.sub(r"https?://\S+", "", answer).strip()
         if self.voice_mode and len(answer) > 120:
             answer = answer[:119].rstrip() + "…"
 
         self.last_model = model
-        self.last_used_web = use_web
+        self.last_used_web = searched
         self.last_reasoning_effort = reasoning_effort
         return answer

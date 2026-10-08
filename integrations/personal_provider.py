@@ -101,6 +101,10 @@ class PersonalAgentProvider:
                 self.last_source = "llm"
                 return await self.fallback.reply(text)
             self.last_source = "chatgpt"
+            self.last_route.update(
+                model=getattr(self.chatgpt, "last_model", ""),
+                actual_used_web=bool(getattr(self.chatgpt, "last_used_web", False)),
+            )
             return answer
 
         self.last_source = "llm"

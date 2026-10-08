@@ -18,7 +18,8 @@ from time import perf_counter
 import serial
 
 from gateway.config import Settings
-from integrations.cao import CAOClient
+from integrations.attention import AttentionObserver
+from integrations.cao import CAOClient, CAOError
 from integrations.chatgpt_plan import ChatGPTPlanProvider
 from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
@@ -138,6 +139,12 @@ async def synthesize_bounded(tts, text):
         return await synthesize_bounded(tts, text[:mid]) + await synthesize_bounded(tts, text[mid:])
 
 
+def pack_playback(buffers):
+    # TTS phrase boundaries need not become USB upload pauses. Preserve every sample.
+    joined = b"".join(buffers)
+    return [joined[i : i + 160000] for i in range(0, len(joined), 160000)]
+
+
 async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=print):
     timings = {}
     turn_started = perf_counter()
@@ -169,6 +176,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     for chunk in speech_chunks(answer):
         buffers.extend(await synthesize_bounded(tts, chunk))
     timings["tts_seconds"] = round(perf_counter() - started, 3)
+    buffers = pack_playback(buffers)
     status("Playing")
     timings["before_play_seconds"] = round(perf_counter() - turn_started, 3)
     started = perf_counter()
@@ -178,6 +186,13 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
     result = {"segments": len(buffers), "answer_source": answer_source, **timings}
     if isinstance(provider, PersonalAgentRouter):
         result.update(intent=provider.last_intent, route_result=provider.last_route_result)
+    brain = provider.fallback if isinstance(provider, PersonalAgentRouter) else provider
+    if answer_source == "chatgpt" and getattr(brain, "last_route", {}).get("model"):
+        route = brain.last_route
+        result["research"] = {
+            key: route[key]
+            for key in ("model", "actual_used_web", "reasoning_effort", "reflection")
+        }
     return result
 
 
@@ -196,7 +211,11 @@ async def serve(args):
         stt = ResidentWhisper(settings.stt_model)
         fallback = CompatibleProvider(settings, voice_mode=True)
         cao_client = (
-            CAOClient(settings.cao_base_url, settings.cao_timeout_seconds)
+            CAOClient(
+                settings.cao_base_url,
+                settings.cao_timeout_seconds,
+                muse_token=settings.cao_muse_token.get_secret_value(),
+            )
             if settings.cao_enabled
             else None
         )
@@ -282,12 +301,14 @@ async def serve(args):
             provider.on_execution = report_execution
 
         state = ["Thinking"]
+        attention = {"count": None}
+        attention_observer = AttentionObserver()
 
         def send_state(value=None):
             with device.lock:
                 if value is not None:
                     state[0] = value
-                frame = {"voice_state": state[0]}
+                frame = {"voice_state": state[0], "attention_count": attention["count"]}
                 execution = getattr(provider, "snapshot", None)
                 if execution:
                     frame["codex"] = {
@@ -312,6 +333,21 @@ async def serve(args):
                         provider.publish({"id": provider.active_id, "status": "unknown"})
                 await asyncio.sleep(3)
 
+        async def poll_attention():
+            while True:
+                if not args.mock and cao_client is not None:
+                    try:
+                        snapshot = await cao_client.attention()
+                        attention_observer.observe(snapshot, focus=state[0] != "Ready")
+                        count = snapshot.get("count")
+                        attention["count"] = (
+                            count if type(count) is int and 0 <= count <= 999 else None
+                        )
+                    except CAOError:
+                        attention["count"] = None
+                await asyncio.sleep(15)
+
+        attention_task = asyncio.create_task(poll_attention())
         task = asyncio.create_task(heartbeat())
         poll_task = asyncio.create_task(poll_execution())
         try:
@@ -322,9 +358,10 @@ async def serve(args):
                 await tts.worker.start()
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
+            attention_task.cancel()
             task.cancel()
             poll_task.cancel()
-            await asyncio.gather(task, poll_task, return_exceptions=True)
+            await asyncio.gather(task, poll_task, attention_task, return_exceptions=True)
             if not args.mock:
                 await stt.worker.close()
                 await tts.worker.close()

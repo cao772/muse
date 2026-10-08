@@ -65,7 +65,8 @@ def _write_private(path: Path, value: str) -> None:
     if os.name != "nt":
         os.chmod(path.parent, 0o700)
     temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(value)
+    with open(temp, "w", opener=lambda path, flags: os.open(path, flags, 0o600)) as handle:
+        handle.write(value)
     if os.name != "nt":
         os.chmod(temp, 0o600)
     temp.replace(path)
@@ -230,7 +231,11 @@ def sign_in(credentials_path: Path, host_id_path: Path, *, new_account: bool, ti
     if not webbrowser.open(authorize_url):
         server.server_close()
         raise SignInError("Could not open the system browser for ChatGPT sign-in")
-    server.handle_request()
+    print("Browser opened: choose your ChatGPT account and approve Muse plan usage.", flush=True)
+    deadline = time.monotonic() + timeout
+    while _CallbackHandler.result is None and time.monotonic() < deadline:
+        server.timeout = min(1, max(0, deadline - time.monotonic()))
+        server.handle_request()
     server.server_close()
     callback = _CallbackHandler.result
     if not callback:

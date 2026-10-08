@@ -13,6 +13,8 @@ typedef struct {
     const char *voice_state;
     const char *codex_state, *codex_profile;
     bool codex_needs_user;
+    bool attention_known;
+    unsigned int attention_count;
     char codex_title[25];
 } muse_audio_snapshot_t;
 

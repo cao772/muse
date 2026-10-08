@@ -169,6 +169,8 @@ static void refresh(lv_timer_t *timer)
     if (input.voice_active) activity = input.recording || input.exporting ? "Listening" : input.voice_state;
     value(audio_state, activity, input.ready && !input.failed);
     lv_label_set_text(voice_status, input.voice_active ? activity : "");
+    if (input.attention_known && input.attention_count && input.voice_ready)
+        lv_label_set_text_fmt(voice_status, "Ready / Items needing you: %u", input.attention_count);
     if (input.codex_state) {
         lv_label_set_text_fmt(heartbeat, "CODEX %s / %s", input.codex_state, input.codex_profile);
         lv_label_set_text_fmt(codex_status, "CODEX %s / %s%s\n%s", input.codex_state,

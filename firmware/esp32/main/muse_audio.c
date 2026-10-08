@@ -40,6 +40,7 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     portENTER_CRITICAL(&audio_lock);
     *out = snapshot;
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
+        out->attention_known = false;
         out->voice_ready = false; out->voice_state = "Host offline";
         if (out->codex_state) out->codex_state = "Unknown";
     }
@@ -101,6 +102,15 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        cJSON *attention = cJSON_GetObjectItemCaseSensitive(obj, "attention_count");
+        if (attention) {
+            portENTER_CRITICAL(&audio_lock);
+            snapshot.attention_known = cJSON_IsNumber(attention) &&
+                attention->valuedouble >= 0 && attention->valuedouble <= 999 &&
+                attention->valuedouble == attention->valueint;
+            snapshot.attention_count = snapshot.attention_known ? attention->valueint : 0;
+            portEXIT_CRITICAL(&audio_lock);
+        }
         cJSON *codex = cJSON_GetObjectItemCaseSensitive(obj, "codex");
         if (cJSON_IsObject(codex)) {
             cJSON *cs = cJSON_GetObjectItemCaseSensitive(codex, "state");

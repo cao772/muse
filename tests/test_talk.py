@@ -179,8 +179,8 @@ def test_once_owns_single_usb_for_real_capture_and_play_protocol(monkeypatch):
     asyncio.run(talk.serve(argparse.Namespace(port="fake", once=True, mock=True)))
     assert len(instances) == 1
     messages = instances[0].writes
-    assert messages[0] == {"voice_state": "Thinking"}
-    assert {"voice_state": "Ready"} in messages
+    assert messages[0] == {"voice_state": "Thinking", "attention_count": None}
+    assert {"voice_state": "Ready", "attention_count": None} in messages
     assert {"pcm_ack": 768} in messages
     assert {"pcm_ack": 320000} in messages
     assert all(m["volume"] == 80 for m in messages if "play_begin" in m)
@@ -221,3 +221,11 @@ def test_tts_duration_exit_is_distinct_from_runtime_error(tmp_path, monkeypatch)
     monkeypatch.setattr(subprocess, "run", run)
     with pytest.raises(TTSOutputTooLong):
         asyncio.run(LocalQwenTTS(python=python).synthesize("测试"))
+
+
+def test_playback_packing_preserves_every_sample_and_five_second_bound():
+    parts = [bytes([n]) * size for n, size in [(1, 100000), (2, 80000), (3, 70000)]]
+    packed = talk.pack_playback(parts)
+    assert b"".join(packed) == b"".join(parts)
+    assert [len(p) for p in packed] == [160000, 90000]
+    assert all(len(p) <= 160000 and len(p) % 2 == 0 for p in packed)

@@ -27,6 +27,10 @@ PROJECT_QUERY_MARKERS = (
     "开发到哪",
     "完成了吗",
     "完成了没",
+    "Codex等什么",
+    "Codex 等什么",
+    "codex等什么",
+    "codex 等什么",
     "我刚回来",
     "错过什么",
     "需要我处理",
@@ -62,7 +66,9 @@ def looks_like_project_query(text: str) -> bool:
 
 
 class CAOClient:
-    def __init__(self, base_url: str, timeout_seconds: float = 5, *, transport=None):
+    def __init__(
+        self, base_url: str, timeout_seconds: float = 5, *, muse_token: str = "", transport=None
+    ):
         parsed = urlsplit(base_url.rstrip("/"))
         if (
             parsed.scheme != "http"
@@ -77,6 +83,7 @@ class CAOClient:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.transport = transport
+        self.muse_token = muse_token
 
     async def _get(self, path: str) -> Any:
         try:
@@ -86,7 +93,10 @@ class CAOClient:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                response = await client.get(self.base_url + path)
+                response = await client.get(
+                    self.base_url + path,
+                    headers={"X-Muse-Token": self.muse_token} if self.muse_token else {},
+                )
             if response.status_code != 200:
                 raise CAOError(f"CAO request failed (HTTP {response.status_code})")
             return response.json()
@@ -109,6 +119,14 @@ class CAOClient:
         if len(projects) != len(data):
             raise CAOError("CAO project list returned invalid data")
         return projects
+
+    async def attention(self) -> dict[str, Any]:
+        if not self.muse_token:
+            raise CAOError("CAO attention requires a scoped Muse token")
+        data = await self._get("/api/v1/personal-agent/attention")
+        if not isinstance(data, dict):
+            raise CAOError("CAO attention returned invalid data")
+        return data
 
     async def personal_summary(self) -> dict[str, Any]:
         data = await self._get("/api/v1/personal-agent/summary")
@@ -169,6 +187,22 @@ class CAOClient:
             return None
 
         lowered = text.lower()
+        if "codex" in lowered and "等什么" in text:
+            data = await self.attention()
+            items = [
+                i
+                for i in data.get("items", [])
+                if i.get("source") == "execution" and i.get("needs_user") is True
+            ]
+            if not items:
+                return "当前快照没有记录 Codex 等待你处理的事项；这不代表任务已正式验收。"
+            first = items[0]
+            return (
+                f"当前快照有{len(items)}项 Codex 事项需要你处理。"
+                f"状态：{_short(first.get('execution_status'), 20)}。"
+                f"事项：{_short(first.get('text'), 34)}。"
+            )
+
         if any(marker in lowered for marker in OPEN_LOOP_MARKERS):
             data = await self.open_loops()
             count = int(data.get("count") or 0)
