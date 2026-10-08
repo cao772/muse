@@ -48,7 +48,8 @@ static bool safe_header(const char *text)
 static void read_configuration(void)
 {
     usb_serial_jtag_driver_config_t usb = {
-        .rx_buffer_size = 2048, .tx_buffer_size = 2048,
+        // Four base64 playback frames fit without overflowing the USB RX ring.
+        .rx_buffer_size = 8192, .tx_buffer_size = 2048,
     };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
     // Console TX must use the installed driver too; HAL polling races its IRQ.
