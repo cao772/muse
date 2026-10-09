@@ -57,6 +57,21 @@ int main(void)
         assert(muse_pet_sprite_render(pairs[i][1], sprite, MUSE_PET_SPRITE_PIXELS));
         assert(memcmp(reference, sprite, sizeof(sprite)) != 0);
     }
+    /* Toys animate for six seconds, expire, and never enqueue another action. */
+    const muse_pet_play_t toys[] = {MUSE_PET_PLAY_BALL, MUSE_PET_PLAY_WAND, MUSE_PET_PLAY_FOOD};
+    for (size_t i = 0; i < sizeof(toys) / sizeof(toys[0]); ++i) {
+        muse_pet_pose_t first = muse_pet_play_frame(toys[i], 0);
+        muse_pet_pose_t second = muse_pet_play_frame(toys[i], 3);
+        assert(first != second);
+        assert(muse_pet_sprite_render(first, reference, MUSE_PET_SPRITE_PIXELS));
+        assert(muse_pet_sprite_render(second, sprite, MUSE_PET_SPRITE_PIXELS));
+        assert(memcmp(reference, sprite, sizeof(sprite)) != 0);
+        assert(muse_pet_play_frame(toys[i], 29) != MUSE_PET_IDLE);
+        assert(muse_pet_play_frame(toys[i], 30) == MUSE_PET_IDLE);
+        assert(muse_pet_play_frame(toys[i], UINT32_MAX) == MUSE_PET_IDLE);
+    }
+    assert(muse_pet_play_frame(MUSE_PET_PLAY_NONE, 0) == MUSE_PET_IDLE);
+    assert(muse_pet_play_frame((muse_pet_play_t)99, 0) == MUSE_PET_IDLE);
     puts("pet_animation native tests PASS");
     return 0;
 }
