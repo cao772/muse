@@ -22,7 +22,7 @@ muse_pet_pose_t muse_pet_select_pose(bool happy, bool agent_running,
     return MUSE_PET_IDLE;
 }
 
-/* Original cream puppy, drawn in layered pixel shapes. No downloaded assets. */
+/* Shiyi: original pixel portrait based on the owner's tabby-and-white cat. */
 static bool oval(int x, int y, int cx, int cy, int rx, int ry)
 {
     int dx = x - cx, dy = y - cy;
@@ -35,46 +35,57 @@ static unsigned int pixel_color(muse_pet_pose_t pose, int x, int y)
     bool sleeping = pose == MUSE_PET_SLEEP;
     bool happy = pose == MUSE_PET_HAPPY;
     bool typing = pose == MUSE_PET_TYPE_A || pose == MUSE_PET_TYPE_B;
-    if (oval(x, y, 16, 29, 11, 2)) color = 0x233c2c; /* soft grounding shadow */
-    if (oval(x, y, 16, 23, 7, 6)) color = 0xd9c6a7;
-    if (oval(x, y, 16, 22, 6, 5)) color = 0xf0e1c5;
-    if (oval(x, y, 7, 13, 4, 7) || oval(x, y, 25, 13, 4, 7)) color = 0x9f775c;
-    if (oval(x, y, 7, 12, 3, 5) || oval(x, y, 25, 12, 3, 5)) color = 0xc79b77;
-    if (oval(x, y, 16, 13, 10, 9)) color = 0xd5ba91;
-    if (oval(x, y, 16, 12, 9, 8)) color = 0xf5e9d1;
-    if (oval(x, y, 14, 8, 5, 3)) color = 0xfff4de;
-    /* Tiny leaf-shaped tuft, rather than pointed monster ears. */
-    if ((y == 3 && x >= 15 && x <= 17) || (y == 2 && x == 17)) color = 0xf5e9d1;
-    if (oval(x, y, 9, 16, 2, 1) || oval(x, y, 23, 16, 2, 1)) color = 0xe6a695;
-    if (sleeping || happy) {
-        if (((x >= 10 && x <= 12) || (x >= 20 && x <= 22)) && y == (happy ? 12 : 14))
-            color = 0x594636;
-        if (happy && (x == 10 || x == 22) && y == 13) color = 0x594636;
-    } else {
-        if (((x >= 11 && x <= 12) || (x >= 20 && x <= 21)) && y >= 12 && y <= 14)
-            color = 0x403b30;
-        if ((x == 11 || x == 20) && y == 12) color = 0xfff9eb;
+    const unsigned int white = 0xf3eee3, tabby = 0xad8a61, stripe = 0x695846;
+    if (oval(x, y, 16, 29, 11, 2)) color = 0x233c2c;
+    /* Curled ringed tail, then white chest and warm brown flank. */
+    if ((oval(x, y, 24, 25, 5, 4) && !oval(x, y, 24, 24, 2, 2)) ||
+        (x >= 26 && x <= 28 && y >= 20 && y <= 25))
+        color = (y % 3 == 0 || x == 28) ? stripe : tabby;
+    if (oval(x, y, 16, 23, 7, 6)) color = 0xc6bba4;
+    if (oval(x, y, 16, 22, 6, 5)) color = white;
+    if (oval(x, y, 21, 23, 2, 4)) color = tabby;
+    if (x >= 20 && x <= 22 && (y == 23 || y == 26)) color = stripe;
+    /* Tall triangular ears with pink interiors. */
+    for (int side = 0; side < 2; ++side) {
+        int ex = side == 0 ? x : 32 - x;
+        if (y >= 2 && y <= 10 && ex >= 5 && ex <= 6 + (y - 2) / 2) color = stripe;
+        if (y >= 3 && y <= 9 && ex >= 6 && ex <= 6 + (y - 3) / 2) color = 0xc99f8d;
     }
-    if (oval(x, y, 16, 17, 4, 3)) color = 0xfff4de;
-    if ((y == 16 && x >= 15 && x <= 17) || (y == 17 && x == 16)) color = 0x67513e;
-    if (y == 19 && (x == 15 || x == 17)) color = 0x9b7058;
-    if (happy && x == 16 && y == 20) color = 0xe6a695;
-    if (pose == MUSE_PET_LISTEN && oval(x, y, 16, 19, 1, 1)) color = 0x67513e;
-    if (y >= 21 && y <= 22 && x >= 11 && x <= 21) color = 0x80ae8c;
-    if (x >= 19 && x <= 20 && y >= 23 && y <= 25) color = 0x608b70;
+    if (oval(x, y, 16, 14, 11, 8)) color = 0xb79a74;
+    if (oval(x, y, 16, 13, 10, 7)) color = tabby;
+    /* Forehead M, cheek stripes, and the characteristic white nose blaze. */
+    if (y >= 7 && y <= 10 && (x == 12 + (y - 7) / 2 || x == 20 - (y - 7) / 2)) color = stripe;
+    if (y == 8 && (x == 10 || x == 22)) color = stripe;
+    if ((y == 14 || y == 16) && ((x >= 6 && x <= 8) || (x >= 24 && x <= 26))) color = stripe;
+    if (y >= 8 && y <= 19 && x >= 16 - (y - 7) / 3 && x <= 16 + (y - 7) / 3)
+        color = white;
+    if (oval(x, y, 16, 18, 7, 3)) color = white;
+    if (sleeping || happy) {
+        if (y == 14 && ((x >= 10 && x <= 12) || (x >= 20 && x <= 22))) color = 0x403a30;
+        if (happy && y == 13 && (x == 11 || x == 21)) color = 0x403a30;
+    } else {
+        if (oval(x, y, 11, 13, 2, 2) || oval(x, y, 21, 13, 2, 2)) color = 0xa0a177;
+        if ((x == 11 || x == 21) && y >= 12 && y <= 14) color = 0x302d28;
+        if ((x == 10 || x == 20) && y == 12) color = 0xfffaee;
+    }
+    if ((y == 17 && x >= 15 && x <= 17) || (y == 18 && x == 16)) color = 0xc58b89;
+    if (y == 19 && (x == 15 || x == 17)) color = 0x8e7669;
+    if (happy && x == 16 && y == 20) color = 0xd69798;
+    if (pose == MUSE_PET_LISTEN && oval(x, y, 16, 19, 1, 1)) color = 0x72584e;
+    if ((y == 18 || y == 20) && ((x >= 4 && x <= 7) || (x >= 25 && x <= 28))) color = 0xd5cbbb;
     int left_y = pose == MUSE_PET_WALK ? 27 : 28;
-    if (oval(x, y, 12, left_y, 3, 1) || oval(x, y, 21, 28, 3, 1)) color = 0xffefd4;
+    if (oval(x, y, 12, left_y, 3, 1) || oval(x, y, 20, 28, 3, 1)) color = white;
     if (sleeping && ((y == 3 && x >= 25 && x <= 28) ||
         (y == 6 && x >= 25 && x <= 28) || (x + y == 31 && y >= 3 && y <= 6)))
         color = 0xb7c8a0;
-    if (pose == MUSE_PET_WAIT && ((x == 28 && y >= 9 && y <= 12) || (x == 28 && y == 14)))
+    if (pose == MUSE_PET_WAIT && ((x == 29 && y >= 9 && y <= 12) || (x == 29 && y == 14)))
         color = 0xf0c575;
-    if (happy && ((x == 3 && y >= 5 && y <= 7) || (y == 6 && x >= 2 && x <= 4)))
+    if (happy && ((x == 2 && y >= 5 && y <= 7) || (y == 6 && x >= 1 && x <= 3)))
         color = 0xf0c575;
     if (typing) {
         if (x >= 8 && x <= 24 && y >= 26 && y <= 29) color = 0x6b8f78;
         if (x >= 10 && x <= 22 && y == 27 && x % 2 == 0) color = 0xc8d7b6;
-        if (oval(x, y, pose == MUSE_PET_TYPE_A ? 12 : 21, 25, 2, 1)) color = 0xffefd4;
+        if (oval(x, y, pose == MUSE_PET_TYPE_A ? 12 : 21, 25, 2, 1)) color = white;
     }
     return color;
 }

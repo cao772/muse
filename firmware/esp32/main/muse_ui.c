@@ -183,7 +183,7 @@ static const char *pet_pose_label(muse_pet_pose_t pose)
     case MUSE_PET_TYPE_B: return "陪你一起工作";
     case MUSE_PET_WAIT: return "有事情等你确认";
     case MUSE_PET_LISTEN: return "认真听你说";
-    default: return "今天也陪着你";
+    default: return "十一陪着你";
     }
 }
 
@@ -492,7 +492,7 @@ void muse_ui_start(void)
 
     pet_page = screen();
     lv_obj_set_style_bg_color(pet_page, lv_color_hex(0x14261f), 0);
-    label(pet_page, "小小农场", 0, 65, &muse_pet_zh_24, 0xf5e9d1);
+    label(pet_page, "十一的农场", 0, 65, &muse_pet_zh_24, 0xf5e9d1);
     pet_frames_init();
     // One source image, 8 small static frames; no imported sprites or render loops.
     pet_face = lv_obj_create(pet_page);
@@ -511,7 +511,7 @@ void muse_ui_start(void)
     lv_obj_center(pet_sprite);
     lv_obj_remove_flag(pet_sprite, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(pet_sprite, LV_OBJ_FLAG_EVENT_BUBBLE);
-    pet_mood = label(pet_page, "今天也陪着你", 0, 239, &muse_pet_zh_18, GREEN);
+    pet_mood = label(pet_page, "十一陪着你", 0, 239, &muse_pet_zh_18, GREEN);
     pet_counter = label(pet_page, "摸摸 0 · 零食 0 · 收获 0",
                         0, 262, &muse_pet_zh_18, 0xa4b59a);
     lv_obj_t *feed = button(pet_page, "喂点零食", 294, pet_feed);

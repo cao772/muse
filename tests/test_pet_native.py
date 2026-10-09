@@ -85,4 +85,4 @@ def test_pet_chinese_font_covers_all_ui_copy():
     assert required <= exported, f"Missing pet glyphs: {required - exported}"
     title_font = (root / "muse_pet_zh_24.c").read_text()
     title_glyphs = {chr(int(code, 16)) for code in re.findall(r"/\* U\+([0-9A-Fa-f]+)", title_font)}
-    assert set("小小农场") <= title_glyphs
+    assert set("十一的农场") <= title_glyphs
