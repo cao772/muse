@@ -25,6 +25,7 @@ muse_pet_pose_t muse_pet_select_pose(bool happy, bool agent_running,
 muse_pet_pose_t muse_pet_select_frame(bool happy, bool agent_running, bool needs_user,
     bool voice_busy, uint32_t inactive_seconds, uint32_t ticks)
 {
+    ticks /= 2u; /* Keep quiet idle cadence while the UI runs at 10fps. */
     if (needs_user) return MUSE_PET_WAIT;
     if (voice_busy) return ticks % 12u == 0 ? MUSE_PET_BLINK : MUSE_PET_LISTEN;
     if (agent_running) return ticks % 4u < 2 ? MUSE_PET_TYPE_A : MUSE_PET_TYPE_B;
@@ -46,11 +47,13 @@ muse_pet_pose_t muse_pet_select_frame(bool happy, bool agent_running, bool needs
 
 muse_pet_pose_t muse_pet_play_frame(muse_pet_play_t play, uint32_t ticks)
 {
-    if (ticks >= 30u) return MUSE_PET_IDLE;
-    bool second = ticks % 6u >= 3u;
+    if (ticks >= 60u) return MUSE_PET_IDLE;
+    static const unsigned int paw_cycle[] = {0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0};
+    unsigned int step=paw_cycle[ticks % 16u];
+    bool second = ticks % 12u >= 6u;
     switch (play) {
-    case MUSE_PET_PLAY_BALL: return second ? MUSE_PET_BALL_B : MUSE_PET_BALL_A;
-    case MUSE_PET_PLAY_WAND: return second ? MUSE_PET_WAND_B : MUSE_PET_WAND_A;
+    case MUSE_PET_PLAY_BALL: return (muse_pet_pose_t)(MUSE_PET_BALL_0+step);
+    case MUSE_PET_PLAY_WAND: return (muse_pet_pose_t)(MUSE_PET_WAND_0+step);
     case MUSE_PET_PLAY_FOOD: return second ? MUSE_PET_FEED_B : MUSE_PET_FEED_A;
     default: return MUSE_PET_IDLE;
     }
@@ -59,23 +62,26 @@ muse_pet_pose_t muse_pet_play_frame(muse_pet_play_t play, uint32_t ticks)
 static uint16_t pixel_color(muse_pet_pose_t pose, int x, int y)
 {
     static const uint8_t frames[MUSE_PET_POSE_COUNT] = {
-        0, 4, 8, 2, 14, 15, 13, 12, 1, 3, 6, 7, 0, 8, 9, 10, 11, 10, 11, 0, 1, 5
+        0, 4, 8, 2, 14, 15, 13, 12, 1, 3, 6, 7, 0, 8, 9, 10, 11, 10, 11, 0, 1, 5,
+        16,17,18,19,20,21,22,23,16,17,18,19,20,21,22,23
     };
     int sx = x;
     if (pose == MUSE_PET_TAIL && y > 67 && x < 42) sx = x > 1 ? x-2 : 0;
     uint16_t c = shiyi_palette[shiyi_art[frames[pose]][y * MUSE_PET_SPRITE_W + sx]];
-    bool ball = pose == MUSE_PET_BALL_A || pose == MUSE_PET_BALL_B;
-    bool wand = pose == MUSE_PET_WAND_A || pose == MUSE_PET_WAND_B;
+    unsigned int paw_step=pose>=MUSE_PET_WAND_0 ? (unsigned int)(pose-MUSE_PET_WAND_0) :
+        pose>=MUSE_PET_BALL_0 ? (unsigned int)(pose-MUSE_PET_BALL_0) : 0;
+    bool ball = (pose>=MUSE_PET_BALL_0 && pose<=MUSE_PET_BALL_7) || pose == MUSE_PET_BALL_A || pose == MUSE_PET_BALL_B;
+    bool wand = (pose>=MUSE_PET_WAND_0 && pose<=MUSE_PET_WAND_7) || pose == MUSE_PET_WAND_A || pose == MUSE_PET_WAND_B;
     bool feed = pose == MUSE_PET_FEED_A || pose == MUSE_PET_FEED_B;
     if (ball) {
-        int bx = pose == MUSE_PET_BALL_A ? 82 : 88;
-        int by = pose == MUSE_PET_BALL_A ? 87 : 74;
+        int bx = 78+(int)paw_step;
+        int by = 86-(int)paw_step*3;
         int dx=x-bx, dy=y-by;
         if (dx*dx+dy*dy <= 25) c=rgb565(0xddaa89);
         if (dy == 0 && dx >= -4 && dx <= 4) c=rgb565(0xb47761);
     }
     if (wand) {
-        int wx = pose == MUSE_PET_WAND_A ? 84 : 76;
+        int wx = 84-(int)paw_step;
         if (x == 91 && y >= 7 && y <= 34) c=rgb565(0xc5ab7c);
         if (y >= 17 && y <= 40 && x == 91-(y-17)*(91-wx)/23) c=rgb565(0xdacfba);
         int dx=x-wx,dy=y-44;

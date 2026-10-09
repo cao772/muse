@@ -33,7 +33,7 @@ int main(void)
     assert(muse_pet_select_pose(false, false, false, false, 60, 2) == MUSE_PET_SLEEP);
     /* The timed sequence must expose every added idle action within one cycle. */
     bool seen[MUSE_PET_POSE_COUNT] = {false};
-    for (uint32_t tick = 0; tick < 70; ++tick) {
+    for (uint32_t tick = 0; tick < 140; ++tick) {
         muse_pet_pose_t pose = muse_pet_select_frame(false, false, false, false, 0, tick);
         assert(pose < MUSE_PET_POSE_COUNT);
         seen[pose] = true;
@@ -47,7 +47,7 @@ int main(void)
     assert(seen[MUSE_PET_GROOM_A] && seen[MUSE_PET_GROOM_B]);
     assert(seen[MUSE_PET_TAIL] && seen[MUSE_PET_WALK]);
     assert(muse_pet_select_frame(false, false, false, false, 30, 0) == MUSE_PET_CURL_A);
-    assert(muse_pet_select_frame(false, false, false, false, 30, 6) == MUSE_PET_CURL_B);
+    assert(muse_pet_select_frame(false, false, false, false, 30, 12) == MUSE_PET_CURL_B);
     /* Breathing and licking pairs must change actual pixels, not only their label. */
     const muse_pet_pose_t pairs[][2] = {
         {MUSE_PET_CURL_A, MUSE_PET_CURL_B}, {MUSE_PET_GROOM_A, MUSE_PET_GROOM_B}
@@ -61,17 +61,27 @@ int main(void)
     const muse_pet_play_t toys[] = {MUSE_PET_PLAY_BALL, MUSE_PET_PLAY_WAND, MUSE_PET_PLAY_FOOD};
     for (size_t i = 0; i < sizeof(toys) / sizeof(toys[0]); ++i) {
         muse_pet_pose_t first = muse_pet_play_frame(toys[i], 0);
-        muse_pet_pose_t second = muse_pet_play_frame(toys[i], 3);
+        muse_pet_pose_t second = muse_pet_play_frame(toys[i], 7);
         assert(first != second);
         assert(muse_pet_sprite_render(first, reference, MUSE_PET_SPRITE_PIXELS));
         assert(muse_pet_sprite_render(second, sprite, MUSE_PET_SPRITE_PIXELS));
         assert(memcmp(reference, sprite, sizeof(sprite)) != 0);
-        assert(muse_pet_play_frame(toys[i], 29) != MUSE_PET_IDLE);
-        assert(muse_pet_play_frame(toys[i], 30) == MUSE_PET_IDLE);
+        assert(muse_pet_play_frame(toys[i], 59) != MUSE_PET_IDLE);
+        assert(muse_pet_play_frame(toys[i], 60) == MUSE_PET_IDLE);
         assert(muse_pet_play_frame(toys[i], UINT32_MAX) == MUSE_PET_IDLE);
     }
     assert(muse_pet_play_frame(MUSE_PET_PLAY_NONE, 0) == MUSE_PET_IDLE);
     assert(muse_pet_play_frame((muse_pet_play_t)99, 0) == MUSE_PET_IDLE);
+    for (unsigned int tick=0;tick<60;tick++) {
+        muse_pet_pose_t ball=muse_pet_play_frame(MUSE_PET_PLAY_BALL,tick);
+        muse_pet_pose_t wand=muse_pet_play_frame(MUSE_PET_PLAY_WAND,tick);
+        assert(ball>=MUSE_PET_BALL_0 && ball<=MUSE_PET_BALL_7);
+        assert(wand>=MUSE_PET_WAND_0 && wand<=MUSE_PET_WAND_7);
+        if (tick) {
+            int delta=(int)ball-(int)muse_pet_play_frame(MUSE_PET_PLAY_BALL,tick-1);
+            assert(delta>=-1 && delta<=1); /* No jump from high paw to low paw. */
+        }
+    }
     puts("pet_animation native tests PASS");
     return 0;
 }

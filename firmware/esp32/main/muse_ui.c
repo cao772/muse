@@ -205,6 +205,8 @@ static void pet_frames_init(void)
 
 static const char *pet_pose_label(muse_pet_pose_t pose)
 {
+    if (pose>=MUSE_PET_BALL_0 && pose<=MUSE_PET_BALL_7) return "拍一拍小皮球";
+    if (pose>=MUSE_PET_WAND_0 && pose<=MUSE_PET_WAND_7) return "抓到小羽毛啦";
     switch (pose) {
     case MUSE_PET_BALL_A:
     case MUSE_PET_BALL_B: return "拍一拍小皮球";
@@ -345,14 +347,14 @@ static void refresh(lv_timer_t *timer)
             input.voice_state && strcmp(input.voice_state, "Host offline") != 0;
         int64_t age = esp_timer_get_time() - last_pet_interaction_us;
         uint32_t inactive_seconds = age <= 0 ? 0 : (uint32_t)(age / 1000000LL);
-        uint32_t ticks = (uint32_t)(esp_timer_get_time() / 200000LL);
+        uint32_t ticks = (uint32_t)(esp_timer_get_time() / 100000LL);
         muse_pet_pose_t pose = muse_pet_select_frame(
             muse_pet_runtime_happy(), agent_running, needs_user, voice_busy,
             inactive_seconds, ticks);
         if (pet_play != MUSE_PET_PLAY_NONE) {
             int64_t elapsed = esp_timer_get_time() - pet_play_started_us;
-            uint32_t play_ticks = elapsed <= 0 ? 0 : (uint32_t)(elapsed / 200000LL);
-            if (play_ticks >= 30u) pet_play = MUSE_PET_PLAY_NONE;
+            uint32_t play_ticks = elapsed <= 0 ? 0 : (uint32_t)(elapsed / 100000LL);
+            if (play_ticks >= 60u) pet_play = MUSE_PET_PLAY_NONE;
             else if (!needs_user && !voice_busy && !agent_running)
                 pose = muse_pet_play_frame(pet_play, play_ticks);
         }
@@ -362,7 +364,8 @@ static void refresh(lv_timer_t *timer)
             last_pet_pose = pose;
         }
         bool walking = pose == MUSE_PET_WALK || pose == MUSE_PET_WALK_B;
-        int x = walking ? (ticks % 4u < 2 ? 5 : -5) : 0;
+        static const int walk_offsets[] = {0,2,4,5,4,2,0,-2,-4,-5,-4,-2};
+        int x = walking ? walk_offsets[ticks % 12u] : 0;
         int y = (walking || pose == MUSE_PET_HAPPY) &&
                 (ticks % 4u < 2) ? 97 : 99;
         lv_obj_align(pet_face, LV_ALIGN_TOP_MID, x, y);
@@ -645,7 +648,7 @@ void muse_ui_start(void)
         navigation(pages[page], page);
     }
     active_page = PAGE_HOME;
-    lv_timer_create(refresh, 200, NULL);
+    lv_timer_create(refresh, 100, NULL);
     refresh(NULL);
     load_page(PAGE_HOME);
     bsp_display_unlock();

@@ -31,6 +31,22 @@ typedef enum {
     MUSE_PET_FEED_A,
     MUSE_PET_FEED_B,
     MUSE_PET_WALK_B,
+    MUSE_PET_BALL_0,
+    MUSE_PET_BALL_1,
+    MUSE_PET_BALL_2,
+    MUSE_PET_BALL_3,
+    MUSE_PET_BALL_4,
+    MUSE_PET_BALL_5,
+    MUSE_PET_BALL_6,
+    MUSE_PET_BALL_7,
+    MUSE_PET_WAND_0,
+    MUSE_PET_WAND_1,
+    MUSE_PET_WAND_2,
+    MUSE_PET_WAND_3,
+    MUSE_PET_WAND_4,
+    MUSE_PET_WAND_5,
+    MUSE_PET_WAND_6,
+    MUSE_PET_WAND_7,
     MUSE_PET_POSE_COUNT
 } muse_pet_pose_t;
 
@@ -38,7 +54,7 @@ muse_pet_pose_t muse_pet_select_pose(bool happy, bool agent_running,
                                     bool needs_user, bool voice_busy,
                                     uint32_t inactive_seconds, uint32_t elapsed_seconds);
 
-/* 200ms UI ticks animate without creating timers or changing persistent state. */
+/* 100ms UI ticks animate without creating timers or changing persistent state. */
 muse_pet_pose_t muse_pet_select_frame(bool happy, bool agent_running, bool needs_user,
     bool voice_busy, uint32_t inactive_seconds, uint32_t ticks);
 

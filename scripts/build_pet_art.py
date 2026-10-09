@@ -18,8 +18,12 @@ def build():
     source = Image.open(SOURCE).convert("RGBA")
     if source.size != (4 * SIZE, 4 * SIZE):
         raise ValueError("Shiyi atlas must contain sixteen 96px cells")
-    matte = Image.new("RGBA", source.size, "#14261f")
+    paw = Image.open(ROOT / "firmware/esp32/assets/shiyi-paw-atlas.png").convert("RGBA")
+    if paw.size != (4 * SIZE, 2 * SIZE):
+        raise ValueError("Paw atlas must contain eight 96px cells")
+    matte = Image.new("RGBA", (4 * SIZE, 6 * SIZE), "#14261f")
     matte.alpha_composite(source)
+    matte.alpha_composite(paw, (0, 4 * SIZE))
     indexed = matte.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT)
     palette = indexed.getpalette()
     colors = []
@@ -32,8 +36,8 @@ def build():
     ]
     for i in range(0, 256, 16):
         lines.append("    " + ",".join(f"0x{c:04x}" for c in colors[i : i + 16]) + ",")
-    lines.extend(["};", "static const uint8_t shiyi_art[16][96 * 96] = {"])
-    for frame in range(16):
+    lines.extend(["};", "static const uint8_t shiyi_art[24][96 * 96] = {"])
+    for frame in range(24):
         x, y = frame % 4 * SIZE, frame // 4 * SIZE
         data = list(indexed.crop((x, y, x + SIZE, y + SIZE)).getdata())
         lines.append("    {")
@@ -42,7 +46,7 @@ def build():
         lines.append("    },")
     lines.append("};\n")
     OUTPUT.write_text("\n".join(lines))
-    print("Built sixteen 96px poses: 147456 indexed bytes + 512 palette bytes in flash")
+    print("Built 24 96px poses: 221184 indexed bytes + 512 palette bytes in flash")
 
 
 if __name__ == "__main__":
