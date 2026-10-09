@@ -8,6 +8,7 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "lvgl.h"
@@ -25,7 +26,7 @@ static lv_obj_t *task_page, *inbox_page;
 static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
 static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat;
 static lv_obj_t *pet_page, *garden_page, *garden_counter, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
-static uint16_t pet_pixels[MUSE_PET_POSE_COUNT][MUSE_PET_SPRITE_PIXELS];
+static uint16_t (*pet_pixels)[MUSE_PET_SPRITE_PIXELS];
 static lv_image_dsc_t pet_frame_images[MUSE_PET_POSE_COUNT];
 static muse_pet_pose_t last_pet_pose = MUSE_PET_POSE_COUNT;
 static int64_t last_pet_interaction_us, pet_play_started_us;
@@ -181,7 +182,14 @@ static void pet_plot(lv_event_t *event)
 
 static void pet_frames_init(void)
 {
-    /* Compile original RGB565 sprites into RAM once; frame switches reuse buffers. */
+    /* Keep artwork out of internal DMA-capable RAM used by the display transport. */
+    pet_pixels = heap_caps_malloc(MUSE_PET_POSE_COUNT * sizeof(*pet_pixels),
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ESP_ERROR_CHECK(pet_pixels ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_LOGI("muse_ui", "PET_ART_MEMORY psram_bytes=%u dma_free=%u dma_largest=%u",
+             (unsigned)(MUSE_PET_POSE_COUNT * sizeof(*pet_pixels)),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
     for (unsigned int i = 0; i < MUSE_PET_POSE_COUNT; ++i) {
         muse_pet_sprite_render((muse_pet_pose_t)i, pet_pixels[i], MUSE_PET_SPRITE_PIXELS);
         lv_image_dsc_t *image = &pet_frame_images[i];
@@ -204,6 +212,7 @@ static const char *pet_pose_label(muse_pet_pose_t pose)
     case MUSE_PET_WAND_B: return "抓到小羽毛啦";
     case MUSE_PET_FEED_A:
     case MUSE_PET_FEED_B: return "零食真好吃";
+    case MUSE_PET_WALK_B:
     case MUSE_PET_WALK: return "散步中";
     case MUSE_PET_CURL_A:
     case MUSE_PET_CURL_B:
@@ -352,8 +361,9 @@ static void refresh(lv_timer_t *timer)
             lv_label_set_text(pet_mood, pet_pose_label(pose));
             last_pet_pose = pose;
         }
-        int x = pose == MUSE_PET_WALK ? (ticks % 4u < 2 ? 5 : -5) : 0;
-        int y = (pose == MUSE_PET_WALK || pose == MUSE_PET_HAPPY) &&
+        bool walking = pose == MUSE_PET_WALK || pose == MUSE_PET_WALK_B;
+        int x = walking ? (ticks % 4u < 2 ? 5 : -5) : 0;
+        int y = (walking || pose == MUSE_PET_HAPPY) &&
                 (ticks % 4u < 2) ? 97 : 99;
         lv_obj_align(pet_face, LV_ALIGN_TOP_MID, x, y);
         lv_label_set_text_fmt(pet_counter, "摸摸 %u · 零食 %u",
@@ -549,7 +559,7 @@ void muse_ui_start(void)
     lv_obj_add_event_cb(pet_face, pet_pat, LV_EVENT_CLICKED, NULL);
     pet_sprite = lv_image_create(pet_face);
     lv_image_set_src(pet_sprite, &pet_frame_images[MUSE_PET_IDLE]);
-    lv_image_set_scale(pet_sprite, LV_SCALE_NONE * 4);
+    lv_image_set_scale(pet_sprite, LV_SCALE_NONE * 2);
     lv_image_set_antialias(pet_sprite, false);
     lv_obj_center(pet_sprite);
     lv_obj_remove_flag(pet_sprite, LV_OBJ_FLAG_CLICKABLE);

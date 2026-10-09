@@ -39,3 +39,4 @@ jobs:
         run: |
           . /opt/esp/idf/export.sh
           idf.py -C firmware/esp32 build
+          python scripts/check_firmware_memory.py firmware/esp32/build/muse_stage5.elf
