@@ -17,12 +17,23 @@ typedef enum {
     MUSE_PET_TYPE_B,
     MUSE_PET_WAIT,
     MUSE_PET_LISTEN,
+    MUSE_PET_BLINK,
+    MUSE_PET_TILT,
+    MUSE_PET_GROOM_A,
+    MUSE_PET_GROOM_B,
+    MUSE_PET_TAIL,
+    MUSE_PET_CURL_A,
+    MUSE_PET_CURL_B,
     MUSE_PET_POSE_COUNT
 } muse_pet_pose_t;
 
 muse_pet_pose_t muse_pet_select_pose(bool happy, bool agent_running,
                                     bool needs_user, bool voice_busy,
                                     uint32_t inactive_seconds, uint32_t elapsed_seconds);
+
+/* 200ms UI ticks animate without creating timers or changing persistent state. */
+muse_pet_pose_t muse_pet_select_frame(bool happy, bool agent_running, bool needs_user,
+    bool voice_busy, uint32_t inactive_seconds, uint32_t ticks);
 
 /* Renders an original opaque RGB565 32x32 pixel sprite, no third-party assets. */
 bool muse_pet_sprite_render(muse_pet_pose_t pose, uint16_t *pixels, size_t capacity);

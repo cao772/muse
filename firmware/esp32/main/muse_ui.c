@@ -177,7 +177,13 @@ static const char *pet_pose_label(muse_pet_pose_t pose)
 {
     switch (pose) {
     case MUSE_PET_WALK: return "散步中";
+    case MUSE_PET_CURL_A:
+    case MUSE_PET_CURL_B:
     case MUSE_PET_SLEEP: return "打个小盹";
+    case MUSE_PET_TILT: return "歪头看看你";
+    case MUSE_PET_GROOM_A:
+    case MUSE_PET_GROOM_B: return "舔舔小爪子";
+    case MUSE_PET_TAIL: return "摇摇尾巴";
     case MUSE_PET_HAPPY: return "好开心呀";
     case MUSE_PET_TYPE_A:
     case MUSE_PET_TYPE_B: return "陪你一起工作";
@@ -300,20 +306,20 @@ static void refresh(lv_timer_t *timer)
         bool needs_user = agent_known && input.codex_needs_user;
         bool voice_busy = input.voice_active && !input.voice_ready &&
             input.voice_state && strcmp(input.voice_state, "Host offline") != 0;
-        uint32_t seconds = (uint32_t)(esp_timer_get_time() / 1000000LL);
         int64_t age = esp_timer_get_time() - last_pet_interaction_us;
         uint32_t inactive_seconds = age <= 0 ? 0 : (uint32_t)(age / 1000000LL);
-        muse_pet_pose_t pose = muse_pet_select_pose(
+        uint32_t ticks = (uint32_t)(esp_timer_get_time() / 200000LL);
+        muse_pet_pose_t pose = muse_pet_select_frame(
             muse_pet_runtime_happy(), agent_running, needs_user, voice_busy,
-            inactive_seconds, seconds);
+            inactive_seconds, ticks);
         if (pose != last_pet_pose) {
             lv_image_set_src(pet_sprite, &pet_frame_images[pose]);
             lv_label_set_text(pet_mood, pet_pose_label(pose));
             last_pet_pose = pose;
         }
-        int x = pose == MUSE_PET_WALK ? (seconds % 2u ? 9 : -9) : 0;
+        int x = pose == MUSE_PET_WALK ? (ticks % 4u < 2 ? 5 : -5) : 0;
         int y = (pose == MUSE_PET_WALK || pose == MUSE_PET_HAPPY) &&
-                (seconds % 2u) ? 102 : 104;
+                (ticks % 4u < 2) ? 102 : 104;
         lv_obj_align(pet_face, LV_ALIGN_TOP_MID, x, y);
         lv_label_set_text_fmt(pet_counter, "摸摸 %u · 零食 %u · 收获 %u",
                               (unsigned int)garden->pats,
