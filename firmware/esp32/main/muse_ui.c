@@ -8,9 +8,13 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "lvgl.h"
+
+LV_FONT_DECLARE(muse_pet_zh_18);
+LV_FONT_DECLARE(muse_pet_zh_24);
 
 static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static muse_status_t status;
@@ -21,13 +25,14 @@ static lv_obj_t *record_button, *voice_status, *codex_status;
 static lv_obj_t *task_page, *inbox_page;
 static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
 static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat;
-static lv_obj_t *pet_page, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
-static uint16_t pet_pixels[MUSE_PET_POSE_COUNT][MUSE_PET_SPRITE_PIXELS];
+static lv_obj_t *pet_page, *garden_page, *garden_counter, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
+static uint16_t (*pet_pixels)[MUSE_PET_SPRITE_PIXELS];
 static lv_image_dsc_t pet_frame_images[MUSE_PET_POSE_COUNT];
 static muse_pet_pose_t last_pet_pose = MUSE_PET_POSE_COUNT;
-static int64_t last_pet_interaction_us;
-static lv_obj_t *plots[MUSE_PET_PLOTS], *plot_text[MUSE_PET_PLOTS];
-enum { PAGE_HOME, PAGE_AUDIO, PAGE_TASK, PAGE_INBOX, PAGE_PET, PAGE_NETWORK, PAGE_TOTAL };
+static int64_t last_pet_interaction_us, pet_play_started_us;
+static muse_pet_play_t pet_play;
+static lv_obj_t *plots[MUSE_PET_PLOTS], *plot_text[MUSE_PET_PLOTS], *plot_sprout[MUSE_PET_PLOTS], *plot_fruit[MUSE_PET_PLOTS];
+enum { PAGE_HOME, PAGE_AUDIO, PAGE_TASK, PAGE_INBOX, PAGE_PET, PAGE_GARDEN, PAGE_NETWORK, PAGE_TOTAL };
 static lv_obj_t *pages[PAGE_TOTAL];
 static unsigned int active_page;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
@@ -73,12 +78,13 @@ static void touch(lv_event_t *event)
 }
 
 static const char *page_names[PAGE_TOTAL] = {
-    "home", "audio", "tasks", "inbox", "pet-garden", "network",
+    "home", "audio", "tasks", "inbox", "shiyi", "garden", "network",
 };
 
 static void load_page(unsigned int index)
 {
     if (index >= PAGE_TOTAL || !pages[index]) return;
+    if (index == PAGE_PET) last_pet_interaction_us = esp_timer_get_time();
     active_page = index;
     lv_screen_load(pages[index]);
     ESP_LOGI("muse_ui", "UI_PAGE %s", page_names[index]);
@@ -132,6 +138,7 @@ static void show_home(lv_event_t *event)
 
 static void pet_pat(lv_event_t *event)
 {
+    pet_play = MUSE_PET_PLAY_NONE;
     muse_pet_runtime_pat();
     last_pet_interaction_us = esp_timer_get_time();
     ESP_LOGI("muse_ui", "PET_INTERACTION pat");
@@ -139,9 +146,28 @@ static void pet_pat(lv_event_t *event)
 
 static void pet_feed(lv_event_t *event)
 {
+    pet_play = MUSE_PET_PLAY_FOOD;
+    pet_play_started_us = esp_timer_get_time();
     muse_pet_runtime_feed();
     last_pet_interaction_us = esp_timer_get_time();
     ESP_LOGI("muse_ui", "PET_INTERACTION treat");
+}
+
+static void pet_toy(lv_event_t *event)
+{
+    pet_play = (muse_pet_play_t)(uintptr_t)lv_event_get_user_data(event);
+    pet_play_started_us = last_pet_interaction_us = esp_timer_get_time();
+    ESP_LOGI("muse_ui", "PET_INTERACTION toy=%u", (unsigned int)pet_play);
+}
+
+static void show_garden(lv_event_t *event)
+{
+    load_page(PAGE_GARDEN);
+}
+
+static void show_pet(lv_event_t *event)
+{
+    load_page(PAGE_PET);
 }
 
 static void pet_plot(lv_event_t *event)
@@ -156,7 +182,14 @@ static void pet_plot(lv_event_t *event)
 
 static void pet_frames_init(void)
 {
-    /* Compile original RGB565 sprites into RAM once; frame switches reuse buffers. */
+    /* Keep artwork out of internal DMA-capable RAM used by the display transport. */
+    pet_pixels = heap_caps_malloc(MUSE_PET_POSE_COUNT * sizeof(*pet_pixels),
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ESP_ERROR_CHECK(pet_pixels ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_LOGI("muse_ui", "PET_ART_MEMORY psram_bytes=%u dma_free=%u dma_largest=%u",
+             (unsigned)(MUSE_PET_POSE_COUNT * sizeof(*pet_pixels)),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
     for (unsigned int i = 0; i < MUSE_PET_POSE_COUNT; ++i) {
         muse_pet_sprite_render((muse_pet_pose_t)i, pet_pixels[i], MUSE_PET_SPRITE_PIXELS);
         lv_image_dsc_t *image = &pet_frame_images[i];
@@ -172,15 +205,30 @@ static void pet_frames_init(void)
 
 static const char *pet_pose_label(muse_pet_pose_t pose)
 {
+    if (pose>=MUSE_PET_BALL_0 && pose<=MUSE_PET_BALL_7) return "拍一拍小皮球";
+    if (pose>=MUSE_PET_WAND_0 && pose<=MUSE_PET_WAND_7) return "抓到小羽毛啦";
     switch (pose) {
-    case MUSE_PET_WALK: return "Taking a little walk";
-    case MUSE_PET_SLEEP: return "Taking a nap";
-    case MUSE_PET_HAPPY: return "Happy!";
+    case MUSE_PET_BALL_A:
+    case MUSE_PET_BALL_B: return "拍一拍小皮球";
+    case MUSE_PET_WAND_A:
+    case MUSE_PET_WAND_B: return "抓到小羽毛啦";
+    case MUSE_PET_FEED_A:
+    case MUSE_PET_FEED_B: return "零食真好吃";
+    case MUSE_PET_WALK_B:
+    case MUSE_PET_WALK: return "散步中";
+    case MUSE_PET_CURL_A:
+    case MUSE_PET_CURL_B:
+    case MUSE_PET_SLEEP: return "打个小盹";
+    case MUSE_PET_TILT: return "歪头看看你";
+    case MUSE_PET_GROOM_A:
+    case MUSE_PET_GROOM_B: return "舔舔小爪子";
+    case MUSE_PET_TAIL: return "摇摇尾巴";
+    case MUSE_PET_HAPPY: return "好开心呀";
     case MUSE_PET_TYPE_A:
-    case MUSE_PET_TYPE_B: return "Keeping Codex company";
-    case MUSE_PET_WAIT: return "Codex needs your input";
-    case MUSE_PET_LISTEN: return "Listening with you";
-    default: return "Here with you";
+    case MUSE_PET_TYPE_B: return "陪你一起工作";
+    case MUSE_PET_WAIT: return "有事情等你确认";
+    case MUSE_PET_LISTEN: return "认真听你说";
+    default: return "十一陪着你";
     }
 }
 
@@ -286,7 +334,7 @@ static void refresh(lv_timer_t *timer)
     value(detail_heartbeat, snapshot.heartbeat ? "Healthy / 5s" : "Waiting", snapshot.heartbeat);
     muse_audio_snapshot_t input;
     muse_audio_snapshot(&input);
-    if (active_page == PAGE_PET) {
+    if (active_page == PAGE_PET || active_page == PAGE_GARDEN) {
         const muse_pet_save_t *garden = muse_pet_runtime_state();
         bool agent_known = input.codex_state && strcmp(input.codex_state, "Unknown") != 0;
         bool agent_running = agent_known &&
@@ -297,33 +345,47 @@ static void refresh(lv_timer_t *timer)
         bool needs_user = agent_known && input.codex_needs_user;
         bool voice_busy = input.voice_active && !input.voice_ready &&
             input.voice_state && strcmp(input.voice_state, "Host offline") != 0;
-        uint32_t seconds = (uint32_t)(esp_timer_get_time() / 1000000LL);
         int64_t age = esp_timer_get_time() - last_pet_interaction_us;
         uint32_t inactive_seconds = age <= 0 ? 0 : (uint32_t)(age / 1000000LL);
-        muse_pet_pose_t pose = muse_pet_select_pose(
+        uint32_t ticks = (uint32_t)(esp_timer_get_time() / 100000LL);
+        muse_pet_pose_t pose = muse_pet_select_frame(
             muse_pet_runtime_happy(), agent_running, needs_user, voice_busy,
-            inactive_seconds, seconds);
+            inactive_seconds, ticks);
+        if (pet_play != MUSE_PET_PLAY_NONE) {
+            int64_t elapsed = esp_timer_get_time() - pet_play_started_us;
+            uint32_t play_ticks = elapsed <= 0 ? 0 : (uint32_t)(elapsed / 100000LL);
+            if (play_ticks >= 60u) pet_play = MUSE_PET_PLAY_NONE;
+            else if (!needs_user && !voice_busy && !agent_running)
+                pose = muse_pet_play_frame(pet_play, play_ticks);
+        }
         if (pose != last_pet_pose) {
             lv_image_set_src(pet_sprite, &pet_frame_images[pose]);
             lv_label_set_text(pet_mood, pet_pose_label(pose));
             last_pet_pose = pose;
         }
-        int x = pose == MUSE_PET_WALK ? (seconds % 2u ? 9 : -9) : 0;
-        int y = (pose == MUSE_PET_WALK || pose == MUSE_PET_HAPPY) &&
-                (seconds % 2u) ? 102 : 104;
+        bool walking = pose == MUSE_PET_WALK || pose == MUSE_PET_WALK_B;
+        static const int walk_offsets[] = {0,2,4,5,4,2,0,-2,-4,-5,-4,-2};
+        int x = walking ? walk_offsets[ticks % 12u] : 0;
+        int y = (walking || pose == MUSE_PET_HAPPY) &&
+                (ticks % 4u < 2) ? 97 : 99;
         lv_obj_align(pet_face, LV_ALIGN_TOP_MID, x, y);
-        lv_label_set_text_fmt(pet_counter, "Pats %u / Treats %u / Crops %u",
+        lv_label_set_text_fmt(pet_counter, "摸摸 %u · 零食 %u",
                               (unsigned int)garden->pats,
-                              (unsigned int)garden->treats,
+                              (unsigned int)garden->treats);
+        lv_label_set_text_fmt(garden_counter, "已收获 %u 次",
                               (unsigned int)garden->harvests);
-        static const char *stage_text[] = {"Plant", "Water", "Growing", "Pick"};
+        static const char *stage_text[] = {"播种", "浇水", "生长中", "收获"};
         static const uint32_t stage_color[] = {
-            0x293e49, 0x94705f, 0x598c69, 0xa6ca72,
+            0x2a3c2d, 0x3b4930, 0x3d563b, 0x5b7144,
         };
         for (unsigned int i = 0; i < MUSE_PET_PLOTS; ++i) {
             unsigned int stage = garden->plots[i];
             if (stage > MUSE_PLOT_READY) stage = MUSE_PLOT_EMPTY;
             lv_label_set_text(plot_text[i], stage_text[stage]);
+            if (stage >= MUSE_PLOT_GROWING) lv_obj_remove_flag(plot_sprout[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(plot_sprout[i], LV_OBJ_FLAG_HIDDEN);
+            if (stage == MUSE_PLOT_READY) lv_obj_remove_flag(plot_fruit[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(plot_fruit[i], LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_color(plots[i],
                                       lv_color_hex(stage_color[stage]), 0);
         }
@@ -484,12 +546,13 @@ void muse_ui_start(void)
     button(inbox_page, "Audio Input", 382, show_audio);
 
     pet_page = screen();
-    label(pet_page, "Pet & Garden", 0, 67, &lv_font_montserrat_24, FG);
+    lv_obj_set_style_bg_color(pet_page, lv_color_hex(0x14261f), 0);
+    label(pet_page, "十一的小窝", 0, 65, &muse_pet_zh_24, 0xf5e9d1);
     pet_frames_init();
-    // One source image, 8 small static frames; no imported sprites or render loops.
+    // Authored full-body sprites and short toy animations reuse static frame buffers.
     pet_face = lv_obj_create(pet_page);
-    lv_obj_set_size(pet_face, 128, 120);
-    lv_obj_align(pet_face, LV_ALIGN_TOP_MID, 0, 104);
+    lv_obj_set_size(pet_face, 204, 196);
+    lv_obj_align(pet_face, LV_ALIGN_TOP_MID, 0, 99);
     lv_obj_set_style_radius(pet_face, 0, 0);
     lv_obj_set_style_bg_opa(pet_face, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(pet_face, 0, 0);
@@ -499,33 +562,79 @@ void muse_ui_start(void)
     lv_obj_add_event_cb(pet_face, pet_pat, LV_EVENT_CLICKED, NULL);
     pet_sprite = lv_image_create(pet_face);
     lv_image_set_src(pet_sprite, &pet_frame_images[MUSE_PET_IDLE]);
-    lv_image_set_scale(pet_sprite, LV_SCALE_NONE * 7);
+    lv_image_set_scale(pet_sprite, LV_SCALE_NONE * 2);
+    lv_image_set_antialias(pet_sprite, false);
     lv_obj_center(pet_sprite);
     lv_obj_remove_flag(pet_sprite, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(pet_sprite, LV_OBJ_FLAG_EVENT_BUBBLE);
-    pet_mood = label(pet_page, "Here with you", 0, 223, &lv_font_montserrat_14, GREEN);
-    pet_counter = label(pet_page, "Pats 0 / Treats 0 / Crops 0",
-                        0, 244, &lv_font_montserrat_14, MUTED);
-    lv_obj_t *feed = button(pet_page, "Give treat", 271, pet_feed);
-    lv_obj_set_size(feed, 132, 34);
-    label(pet_page, "Tap plots to plant, water and pick",
-          0, 308, &lv_font_montserrat_14, MUTED);
+    pet_mood = label(pet_page, "十一陪着你", 0, 299, &muse_pet_zh_18, GREEN);
+    pet_counter = label(pet_page, "摸摸 0 · 零食 0",
+                        0, 324, &muse_pet_zh_18, 0xa4b59a);
+    const char *toy_labels[] = {"喂点零食", "逗猫棒", "小皮球", "去小农场"};
+    for (unsigned int i = 0; i < 4; ++i) {
+        lv_event_cb_t action = i == 0 ? pet_feed : i == 3 ? show_garden : pet_toy;
+        lv_obj_t *control = button(pet_page, toy_labels[i], 354 + (int)(i / 2) * 45, action);
+        lv_obj_set_size(control, 136, 38);
+        lv_obj_align(control, LV_ALIGN_TOP_MID, i % 2 ? 74 : -74, 354 + (int)(i / 2) * 45);
+        lv_obj_set_style_text_font(lv_obj_get_child(control, 0), &muse_pet_zh_18, 0);
+        lv_obj_set_style_bg_color(control, lv_color_hex(i == 0 ? 0xe6bb7e : 0x365044), 0);
+        lv_obj_set_style_bg_color(control, lv_color_hex(0x6c8062), LV_STATE_PRESSED);
+        lv_obj_set_style_text_color(lv_obj_get_child(control, 0), lv_color_hex(i == 0 ? 0x342f24 : 0xf5e9d1), 0);
+        if (i == 1 || i == 2) {
+            lv_obj_remove_event_cb(control, pet_toy);
+            lv_obj_add_event_cb(control, pet_toy, LV_EVENT_CLICKED,
+                (void *)(uintptr_t)(i == 1 ? MUSE_PET_PLAY_WAND : MUSE_PET_PLAY_BALL));
+        }
+    }
+    garden_page = screen();
+    lv_obj_set_style_bg_color(garden_page, lv_color_hex(0x14261f), 0);
+    label(garden_page, "十一的农场", 0, 80, &muse_pet_zh_24, 0xf5e9d1);
+    label(garden_page, "播种、浇水，等它慢慢长大", 0, 126, &muse_pet_zh_18, GREEN);
+    garden_counter = label(garden_page, "已收获 0 次", 0, 165, &muse_pet_zh_18, 0xa4b59a);
     for (unsigned int i = 0; i < MUSE_PET_PLOTS; ++i) {
-        plots[i] = lv_button_create(pet_page);
-        lv_obj_set_size(plots[i], 92, 50);
-        lv_obj_align(plots[i], LV_ALIGN_TOP_MID, (int)(i * 106) - 106, 333);
+        plots[i] = lv_button_create(garden_page);
+        lv_obj_set_size(plots[i], 92, 66);
+        lv_obj_align(plots[i], LV_ALIGN_TOP_MID, (int)(i * 102) - 102, 220);
         lv_obj_set_style_radius(plots[i], 15, 0);
-        lv_obj_set_style_bg_color(plots[i], lv_color_hex(0x293e49), 0);
+        lv_obj_set_style_bg_color(plots[i], lv_color_hex(0x2a3c2d), 0);
         lv_obj_set_style_shadow_width(plots[i], 0, 0);
         lv_obj_add_flag(plots[i], LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_add_event_cb(plots[i], pet_plot, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)i);
-        plot_text[i] = label(plots[i], "Plant", 0, 0,
-                             &lv_font_montserrat_16, FG);
-        lv_obj_center(plot_text[i]);
+        plot_text[i] = label(plots[i], "播种", 0, 0,
+                             &muse_pet_zh_18, FG);
+        lv_obj_align(plot_text[i], LV_ALIGN_BOTTOM_MID, 0, 1);
+        plot_sprout[i] = lv_obj_create(plots[i]);
+        lv_obj_set_size(plot_sprout[i], 30, 24);
+        lv_obj_align(plot_sprout[i], LV_ALIGN_TOP_MID, 0, -8);
+        lv_obj_set_style_bg_opa(plot_sprout[i], LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(plot_sprout[i], 0, 0);
+        lv_obj_set_style_pad_all(plot_sprout[i], 0, 0);
+        lv_obj_remove_flag(plot_sprout[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        for (unsigned int leaf = 0; leaf < 3; ++leaf) {
+            lv_obj_t *part = lv_obj_create(plot_sprout[i]);
+            lv_obj_set_size(part, leaf == 2 ? 3 : 12, leaf == 2 ? 14 : 7);
+            lv_obj_set_style_bg_color(part, lv_color_hex(leaf == 1 ? 0xb8d18d : 0x86ae72), 0);
+            lv_obj_set_style_border_width(part, 0, 0);
+            lv_obj_set_style_radius(part, 4, 0);
+            lv_obj_align(part, LV_ALIGN_TOP_MID, leaf == 0 ? -5 : leaf == 1 ? 5 : 0,
+                         leaf == 2 ? 7 : leaf == 0 ? 3 : 0);
+            lv_obj_remove_flag(part, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        }
+        lv_obj_add_flag(plot_sprout[i], LV_OBJ_FLAG_HIDDEN);
+        plot_fruit[i] = lv_obj_create(plots[i]);
+        lv_obj_set_size(plot_fruit[i], 9, 9);
+        lv_obj_set_style_radius(plot_fruit[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(plot_fruit[i], lv_color_hex(0xe7b974), 0);
+        lv_obj_set_style_border_width(plot_fruit[i], 0, 0);
+        lv_obj_align(plot_fruit[i], LV_ALIGN_TOP_MID, 7, 0);
+        lv_obj_remove_flag(plot_fruit[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(plot_fruit[i], LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_t *pet_speak = button(pet_page, "Speak", 398, show_audio);
-    lv_obj_set_width(pet_speak, 120);
+    lv_obj_t *return_pet = button(garden_page, "回去陪十一", 326, show_pet);
+    lv_obj_set_style_text_font(lv_obj_get_child(return_pet, 0), &muse_pet_zh_18, 0);
+    lv_obj_t *pet_speak = button(garden_page, "说句话", 380, show_audio);
+    lv_obj_set_style_text_font(lv_obj_get_child(pet_speak, 0), &muse_pet_zh_18, 0);
     last_pet_interaction_us = esp_timer_get_time();
 
     pages[PAGE_HOME] = home;
@@ -533,12 +642,13 @@ void muse_ui_start(void)
     pages[PAGE_TASK] = task_page;
     pages[PAGE_INBOX] = inbox_page;
     pages[PAGE_PET] = pet_page;
+    pages[PAGE_GARDEN] = garden_page;
     pages[PAGE_NETWORK] = details;
     for (unsigned int page = 0; page < PAGE_TOTAL; ++page) {
         navigation(pages[page], page);
     }
     active_page = PAGE_HOME;
-    lv_timer_create(refresh, 200, NULL);
+    lv_timer_create(refresh, 100, NULL);
     refresh(NULL);
     load_page(PAGE_HOME);
     bsp_display_unlock();

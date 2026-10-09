@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MUSE_PET_SPRITE_W 16u
-#define MUSE_PET_SPRITE_H 16u
+#define MUSE_PET_SPRITE_W 96u
+#define MUSE_PET_SPRITE_H 96u
 #define MUSE_PET_SPRITE_PIXELS (MUSE_PET_SPRITE_W * MUSE_PET_SPRITE_H)
 
 /* Visual states only: they never change the saved pet/garden schema. */
@@ -17,6 +17,36 @@ typedef enum {
     MUSE_PET_TYPE_B,
     MUSE_PET_WAIT,
     MUSE_PET_LISTEN,
+    MUSE_PET_BLINK,
+    MUSE_PET_TILT,
+    MUSE_PET_GROOM_A,
+    MUSE_PET_GROOM_B,
+    MUSE_PET_TAIL,
+    MUSE_PET_CURL_A,
+    MUSE_PET_CURL_B,
+    MUSE_PET_BALL_A,
+    MUSE_PET_BALL_B,
+    MUSE_PET_WAND_A,
+    MUSE_PET_WAND_B,
+    MUSE_PET_FEED_A,
+    MUSE_PET_FEED_B,
+    MUSE_PET_WALK_B,
+    MUSE_PET_BALL_0,
+    MUSE_PET_BALL_1,
+    MUSE_PET_BALL_2,
+    MUSE_PET_BALL_3,
+    MUSE_PET_BALL_4,
+    MUSE_PET_BALL_5,
+    MUSE_PET_BALL_6,
+    MUSE_PET_BALL_7,
+    MUSE_PET_WAND_0,
+    MUSE_PET_WAND_1,
+    MUSE_PET_WAND_2,
+    MUSE_PET_WAND_3,
+    MUSE_PET_WAND_4,
+    MUSE_PET_WAND_5,
+    MUSE_PET_WAND_6,
+    MUSE_PET_WAND_7,
     MUSE_PET_POSE_COUNT
 } muse_pet_pose_t;
 
@@ -24,5 +54,14 @@ muse_pet_pose_t muse_pet_select_pose(bool happy, bool agent_running,
                                     bool needs_user, bool voice_busy,
                                     uint32_t inactive_seconds, uint32_t elapsed_seconds);
 
-/* Renders an original opaque RGB565 16x16 pixel sprite, no third-party assets. */
+/* 100ms UI ticks animate without creating timers or changing persistent state. */
+muse_pet_pose_t muse_pet_select_frame(bool happy, bool agent_running, bool needs_user,
+    bool voice_busy, uint32_t inactive_seconds, uint32_t ticks);
+
+/* Renders an original opaque RGB565 96x96 pixel sprite, no third-party assets. */
 bool muse_pet_sprite_render(muse_pet_pose_t pose, uint16_t *pixels, size_t capacity);
+
+/* Short local interactions, no persistent state or task execution. */
+typedef enum { MUSE_PET_PLAY_NONE, MUSE_PET_PLAY_BALL, MUSE_PET_PLAY_WAND,
+               MUSE_PET_PLAY_FOOD } muse_pet_play_t;
+muse_pet_pose_t muse_pet_play_frame(muse_pet_play_t play, uint32_t ticks);
