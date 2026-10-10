@@ -199,6 +199,7 @@ async def respond(wav, stt, provider, tts, play, provider_timeout=15, status=pri
 
 async def serve(args):
     settings = Settings()
+    cao_client = None
     if args.mock:
 
         class OfflineSTT:

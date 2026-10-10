@@ -113,6 +113,7 @@ def test_process_stt_timeout_and_error_are_sanitized(monkeypatch):
 
 
 def test_once_owns_single_usb_for_real_capture_and_play_protocol(monkeypatch):
+    monkeypatch.setenv("MUSE_WECHAT_ENABLED", "true")
     pcm = struct.pack("<hh", 2000, 2000) * 80000
     digest = hashlib.sha256(pcm).hexdigest()
     frames = [f"MUSE_PCM_BEGIN rate=16000 channels=2 bits=16 bytes=320000 sha256={digest}"]
