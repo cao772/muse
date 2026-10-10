@@ -125,6 +125,10 @@ def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
         state = re.search(r"VOICE_STATE (Ready|Listening|Thinking|Speaking)$", line)
         if state:
             print("Device: " + state[1], flush=True)
+        if re.search(r"UI_PAGE inbox$", line):
+            on_inbox = getattr(device, "_muse_on_inbox", None)
+            if on_inbox:
+                on_inbox()
         # Do not print PCM/base64 or arbitrary device logs.
         metadata = re.search(r"AUDIO_CAPTURED frames=\d+ elapsed_ms=\d+", line)
         if metadata:

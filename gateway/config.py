@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     cao_muse_token: SecretStr = SecretStr("")
     cao_base_url: str = "http://127.0.0.1:8080"
     cao_timeout_seconds: float = Field(default=5, ge=0.1, le=30)
+    wechat_enabled: bool = False
+    wechat_scope_id: str = ""
+    wechat_token: SecretStr = SecretStr("")
+    wechat_base_url: str = ""
+    wechat_cursor_path: str = "~/.local/share/muse/wechat-cursor.sqlite3"
     chatgpt_enabled: bool = False
     chatgpt_auto_enabled: bool = True
     chatgpt_credentials_path: str = "~/.config/muse/chatgpt-plan.json"

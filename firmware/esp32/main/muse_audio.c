@@ -41,6 +41,7 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     *out = snapshot;
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
         out->attention_known = false;
+        out->wechat_status = "unavailable";
         out->voice_ready = false; out->voice_state = "Host offline";
         if (out->codex_state) out->codex_state = "Unknown";
     }
@@ -84,6 +85,15 @@ bool muse_audio_request_auto_capture(void)
     return request_capture(MUSE_ENDPOINT_MAX_SECONDS, true);
 }
 
+static bool bounded_uint(cJSON *obj, const char *key, unsigned int max, unsigned int *out)
+{
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsNumber(v) || v->valuedouble < 0 || v->valuedouble > max ||
+        v->valuedouble != v->valueint) return false;
+    *out = v->valueint;
+    return true;
+}
+
 static void command_task(void *arg)
 {
     char line[1536];
@@ -109,6 +119,30 @@ static void command_task(void *arg)
                 attention->valuedouble >= 0 && attention->valuedouble <= 999 &&
                 attention->valuedouble == attention->valueint;
             snapshot.attention_count = snapshot.attention_known ? attention->valueint : 0;
+            portEXIT_CRITICAL(&audio_lock);
+        }
+        cJSON *wechat = cJSON_GetObjectItemCaseSensitive(obj, "wechat");
+        if (wechat) {
+            const char *status = "unavailable";
+            unsigned int count = 0, age = 0, mentions = 0, tasks = 0, blockers = 0;
+            cJSON *ws = cJSON_GetObjectItemCaseSensitive(wechat, "status");
+            cJSON *cats = cJSON_GetObjectItemCaseSensitive(wechat, "categories");
+            if (cJSON_IsString(ws) && !strcmp(ws->valuestring, "available") &&
+                bounded_uint(wechat, "count", 999, &count) &&
+                bounded_uint(wechat, "sync_age_minutes", 9999, &age)) {
+                status = "available";
+                bounded_uint(cats, "mention", 999, &mentions);
+                bounded_uint(cats, "task", 999, &tasks);
+                bounded_uint(cats, "blocker", 999, &blockers);
+            } else if (cJSON_IsString(ws) && !strcmp(ws->valuestring, "stale")) {
+                status = "stale";
+                bounded_uint(wechat, "sync_age_minutes", 9999, &age);
+            }
+            portENTER_CRITICAL(&audio_lock);
+            snapshot.wechat_status = status;
+            snapshot.wechat_count = count; snapshot.wechat_sync_age = age;
+            snapshot.wechat_mentions = mentions; snapshot.wechat_tasks = tasks;
+            snapshot.wechat_blockers = blockers;
             portEXIT_CRITICAL(&audio_lock);
         }
         cJSON *codex = cJSON_GetObjectItemCaseSensitive(obj, "codex");
