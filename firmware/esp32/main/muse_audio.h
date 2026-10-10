@@ -15,6 +15,9 @@ typedef struct {
     bool codex_needs_user;
     bool attention_known;
     unsigned int attention_count;
+    const char *wechat_status;
+    unsigned int wechat_count, wechat_sync_age;
+    unsigned int wechat_mentions, wechat_tasks, wechat_blockers;
     char codex_title[25];
 } muse_audio_snapshot_t;
 

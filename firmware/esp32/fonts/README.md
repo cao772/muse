@@ -11,3 +11,5 @@
 重建时下载上述固定版本，校验 SHA-256，通过 `fontTools.varLib.instancer.instantiateVariableFont(font, {'wght': 500})` 生成临时静态 TTF，再使用 C 文件头部的 `lv_font_conv` 参数。源 TTF 约 17 MB，仅放本地忽略目录；固件只编译生成的 C 字库，不把原 TTF 打包进 app。
 
 修改宠物页文案后须重新生成子集并运行 `tests/test_pet_native.py`，避免漏字导致方框。24 px 字库用于“十一的小窝”和“十一的农场”标题；18 px 用于状态、按钮、田地与数字。
+
+P8 在 18 px 子集中追加消息页实际中文（待查看、同步、过期、静默等），复用同一固定字体与转换器。24 px 宠物标题字体未改变。

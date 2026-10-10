@@ -24,7 +24,7 @@ static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], 
 static lv_obj_t *record_button, *voice_status, *codex_status;
 static lv_obj_t *task_page, *inbox_page;
 static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
-static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat;
+static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat, *wechat_sync, *wechat_categories;
 static lv_obj_t *pet_page, *garden_page, *garden_counter, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
 static uint16_t (*pet_pixels)[MUSE_PET_SPRITE_PIXELS];
 static lv_image_dsc_t pet_frame_images[MUSE_PET_POSE_COUNT];
@@ -422,6 +422,17 @@ static void refresh(lv_timer_t *timer)
         value(task_owner, "No execution snapshot", false);
         lv_label_set_text(task_name, "Waiting for CAO");
     }
+    if (input.wechat_status && !strcmp(input.wechat_status, "available")) {
+        lv_label_set_text_fmt(inbox_wechat, "%u 条待查看", input.wechat_count);
+        lv_label_set_text_fmt(wechat_sync, "%u 分钟前同步 · 批次采集", input.wechat_sync_age);
+        lv_label_set_text_fmt(wechat_categories, "提及 %u · 任务 %u · 阻塞 %u",
+            input.wechat_mentions, input.wechat_tasks, input.wechat_blockers);
+    } else {
+        lv_label_set_text(inbox_wechat, input.wechat_status && !strcmp(input.wechat_status, "stale") ?
+            "同步已过期" : "暂不可用");
+        lv_label_set_text(wechat_sync, "不是微信实时未读数");
+        lv_label_set_text(wechat_categories, "仅授权项目群 · 静默");
+    }
     if (input.attention_known) {
         lv_label_set_text_fmt(inbox_count, "%u pending", input.attention_count);
         value(inbox_sync, "CAO snapshot via USB", true);
@@ -538,11 +549,13 @@ void muse_ui_start(void)
     inbox_count = label(inbox_page, "--", 0, 160, &lv_font_montserrat_24, GREEN);
     inbox_sync = label(inbox_page, "CAO not available", 0, 202,
                        &lv_font_montserrat_14, MUTED);
-    label(inbox_page, "WeChat", 0, 254, &lv_font_montserrat_20, FG);
-    inbox_wechat = label(inbox_page, "Not linked to Muse", 0, 292,
-                        &lv_font_montserrat_16, MUTED);
-    label(inbox_page, "No real-time message feed yet", 0, 326,
-          &lv_font_montserrat_14, MUTED);
+    label(inbox_page, "项目群消息", 0, 244, &muse_pet_zh_18, FG);
+    inbox_wechat = label(inbox_page, "暂不可用", 0, 278,
+                        &muse_pet_zh_18, MUTED);
+    wechat_sync = label(inbox_page, "不是微信实时未读数", 0, 312,
+          &muse_pet_zh_18, MUTED);
+    wechat_categories = label(inbox_page, "仅授权项目群 · 静默", 0, 342,
+          &muse_pet_zh_18, MUTED);
     button(inbox_page, "Audio Input", 382, show_audio);
 
     pet_page = screen();

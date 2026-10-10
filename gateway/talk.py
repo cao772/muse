@@ -28,6 +28,7 @@ from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
 from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
+from integrations.wechat_notifications import WeChatNotifications, unavailable_frame
 from scripts.capture_audio import CaptureCancelled, CaptureTimeout, receive_pcm
 from scripts.play_audio import upload
 
@@ -303,12 +304,27 @@ async def serve(args):
         state = ["Thinking"]
         attention = {"count": None}
         attention_observer = AttentionObserver()
+        wechat = (
+            WeChatNotifications(
+                CAOClient(
+                    settings.wechat_base_url or settings.cao_base_url,
+                    settings.cao_timeout_seconds,
+                    muse_token=settings.wechat_token.get_secret_value(),
+                ),
+                settings.wechat_scope_id,
+                Path(settings.wechat_cursor_path).expanduser(),
+            )
+            if settings.wechat_enabled and cao_client is not None and not args.mock
+            else None
+        )
+        device.device._muse_on_inbox = wechat.acknowledge if wechat else None
 
         def send_state(value=None):
             with device.lock:
                 if value is not None:
                     state[0] = value
                 frame = {"voice_state": state[0], "attention_count": attention["count"]}
+                frame["wechat"] = wechat.frame if wechat else unavailable_frame()
                 execution = getattr(provider, "snapshot", None)
                 if execution:
                     frame["codex"] = {
@@ -347,6 +363,13 @@ async def serve(args):
                         attention["count"] = None
                 await asyncio.sleep(15)
 
+        async def poll_wechat():
+            while True:
+                if wechat:
+                    await wechat.refresh()
+                await asyncio.sleep(60)
+
+        wechat_task = asyncio.create_task(poll_wechat())
         attention_task = asyncio.create_task(poll_attention())
         task = asyncio.create_task(heartbeat())
         poll_task = asyncio.create_task(poll_execution())
@@ -358,10 +381,15 @@ async def serve(args):
                 await tts.worker.start()
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
+            wechat_task.cancel()
             attention_task.cancel()
             task.cancel()
             poll_task.cancel()
-            await asyncio.gather(task, poll_task, attention_task, return_exceptions=True)
+            await asyncio.gather(
+                task, poll_task, attention_task, wechat_task, return_exceptions=True
+            )
+            if wechat:
+                wechat.close()
             if not args.mock:
                 await stt.worker.close()
                 await tts.worker.close()
