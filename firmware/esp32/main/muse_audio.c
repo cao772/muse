@@ -40,6 +40,7 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     portENTER_CRITICAL(&audio_lock);
     *out = snapshot;
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
+        out->board.available = false;
         out->attention_known = false;
         out->wechat_status = "unavailable";
         out->voice_ready = false; out->voice_state = "Host offline";
@@ -94,6 +95,50 @@ static bool bounded_uint(cJSON *obj, const char *key, unsigned int max, unsigned
     return true;
 }
 
+static bool board_string(cJSON *obj, const char *key, char *out, size_t size)
+{
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsString(v) || strlen(v->valuestring) >= size) return false;
+    for (const unsigned char *p = (const unsigned char *)v->valuestring; *p; p++)
+        if (*p < 32) return false;
+    snprintf(out, size, "%s", v->valuestring);
+    return true;
+}
+
+static void board_command(cJSON *obj)
+{
+    cJSON *b = cJSON_GetObjectItemCaseSensitive(obj, "board");
+    if (!b) return;
+    muse_board_snapshot_t next = {0};
+    char status[16] = {0};
+    bool valid = board_string(b, "status", status, sizeof(status)) &&
+        bounded_uint(b, "revision", 999999999, &next.revision);
+    next.stale = !strcmp(status, "stale");
+    next.available = valid && (!strcmp(status, "available") || next.stale) &&
+        bounded_uint(b, "projects", 50, &next.projects) &&
+        bounded_uint(b, "registered", 10000, &next.registered) &&
+        bounded_uint(b, "index", 50, &next.index) &&
+        bounded_uint(b, "task_index", 5, &next.task_index) &&
+        bounded_uint(b, "tasks", 5, &next.tasks) &&
+        next.index <= next.projects && next.task_index <= next.tasks &&
+        board_string(b, "alias", next.alias, sizeof(next.alias)) &&
+        board_string(b, "title", next.title, sizeof(next.title)) &&
+        board_string(b, "state", next.state, sizeof(next.state)) &&
+        board_string(b, "progress", next.progress, sizeof(next.progress)) &&
+        board_string(b, "profile", next.profile, sizeof(next.profile));
+    board_string(b, "effort", next.effort, sizeof(next.effort));
+    board_string(b, "source", next.source, sizeof(next.source));
+    board_string(b, "action", next.action, sizeof(next.action));
+    board_string(b, "instruction", next.instruction, sizeof(next.instruction));
+    board_string(b, "file", next.file, sizeof(next.file));
+    next.event_known = bounded_uint(b, "event_age", 9999, &next.event_age);
+    next.tests_known = bounded_uint(b, "passed", 100000, &next.passed) &&
+                       bounded_uint(b, "failed", 100000, &next.failed);
+    portENTER_CRITICAL(&audio_lock);
+    snapshot.board = next;
+    portEXIT_CRITICAL(&audio_lock);
+}
+
 static void command_task(void *arg)
 {
     char line[1536];
@@ -112,6 +157,7 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        board_command(obj);
         cJSON *attention = cJSON_GetObjectItemCaseSensitive(obj, "attention_count");
         if (attention) {
             portENTER_CRITICAL(&audio_lock);

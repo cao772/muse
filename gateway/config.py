@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     cao_muse_token: SecretStr = SecretStr("")
     cao_base_url: str = "http://127.0.0.1:8080"
     cao_timeout_seconds: float = Field(default=5, ge=0.1, le=30)
+    codex_board_enabled: bool = False
+    codex_board_token: SecretStr = SecretStr("")
+    codex_board_base_url: str = ""
+    codex_board_control_enabled: bool = False
     wechat_enabled: bool = False
     wechat_scope_id: str = ""
     wechat_token: SecretStr = SecretStr("")
