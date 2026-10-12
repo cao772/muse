@@ -440,7 +440,10 @@ static void refresh(lv_timer_t *timer)
     const muse_board_snapshot_t *b = &input.board;
     static muse_board_snapshot_t rendered_board;
     static bool board_rendered, rendered_ready;
-    muse_board_snapshot_t visible_board = *b;
+    // refresh also runs during startup on the smaller main task stack.
+    // LVGL access is serialized; keep both bounded render buffers off that stack.
+    static muse_board_snapshot_t visible_board;
+    visible_board = *b;
     visible_board.revision = 0;
     if (!board_rendered || rendered_ready != input.voice_ready ||
         memcmp(&rendered_board, &visible_board, sizeof(visible_board))) {
