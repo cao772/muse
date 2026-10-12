@@ -235,3 +235,31 @@ def test_playback_packing_preserves_every_sample_and_five_second_bound():
     assert b"".join(packed) == b"".join(parts)
     assert [len(p) for p in packed] == [160000, 90000]
     assert all(len(p) <= 160000 and len(p) % 2 == 0 for p in packed)
+
+
+def test_board_navigation_publishes_before_return_and_rejects_stale_or_busy():
+    class Board:
+        revision = 7
+        pending = {"instruction": "test"}
+
+        def navigate(self, action, revision):
+            assert action == "next" and revision == self.revision
+            self.revision += 1
+
+    board = Board()
+    frames = []
+
+    def publish():
+        frames.append((board.revision, board.pending))
+
+    async def check():
+        await talk.dispatch_board_action(board, "next", 7, "Ready", None, False, publish)
+        assert frames == [(8, {"instruction": "test"})]
+        await talk.dispatch_board_action(board, "next", 7, "Ready", None, False, publish)
+        await talk.dispatch_board_action(board, "next", 8, "Thinking", None, False, publish)
+        await talk.dispatch_board_action(board, "confirm", 8, "Ready", None, False, publish)
+        assert len(frames) == 1
+        await talk.dispatch_board_action(board, "cancel", 8, "Ready", None, False, publish)
+        assert frames[-1] == (8, None)
+
+    asyncio.run(check())

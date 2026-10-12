@@ -34,6 +34,26 @@ from scripts.capture_audio import CaptureCancelled, CaptureTimeout, receive_pcm
 from scripts.play_audio import upload
 
 
+async def dispatch_board_action(board, action, revision, state, provider, control, publish):
+    """Acknowledge accepted screen actions without waiting for the heartbeat."""
+    if not board or state != "Ready" or revision != board.revision:
+        return
+    if action == "cancel":
+        board.pending = None
+    elif action == "confirm":
+        if not control or not isinstance(provider, PersonalAgentRouter):
+            return
+        try:
+            await board.confirm(provider.execution)
+        except CAOError:
+            board.action_state = "unknown"
+    elif action in {"next", "previous", "task"}:
+        board.navigate(action, revision)
+    else:
+        return
+    await asyncio.to_thread(publish)
+
+
 def input_wav(pcm):
     if not 0 < len(pcm) <= 1280000 or len(pcm) % 4:
         raise ValueError("Expected verified stereo PCM, at most 20 seconds")
@@ -337,22 +357,15 @@ async def serve(args):
         loop = asyncio.get_running_loop()
 
         async def handle_board_action(action, revision):
-            if not board or state[0] != "Ready" or revision != board.revision:
-                return
-            if action == "cancel":
-                board.pending = None
-                return
-            if action == "confirm":
-                if not settings.codex_board_control_enabled or not isinstance(
-                    provider, PersonalAgentRouter
-                ):
-                    return
-                try:
-                    await board.confirm(provider.execution)
-                except CAOError:
-                    board.action_state = "unknown"
-                return
-            board.navigate(action, revision)
+            await dispatch_board_action(
+                board,
+                action,
+                revision,
+                state[0],
+                provider,
+                settings.codex_board_control_enabled,
+                send_state,
+            )
 
         def board_action(action, revision):
             loop.call_soon_threadsafe(
@@ -417,6 +430,7 @@ async def serve(args):
             while True:
                 if board:
                     await board.refresh()
+                    await asyncio.to_thread(send_state)
                 await asyncio.sleep(10)
 
         board_task = asyncio.create_task(poll_board())

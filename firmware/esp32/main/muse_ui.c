@@ -438,45 +438,55 @@ static void refresh(lv_timer_t *timer)
     if (input.attention_known && input.attention_count && input.voice_ready)
         lv_label_set_text_fmt(voice_status, "Ready / Items needing you: %u", input.attention_count);
     const muse_board_snapshot_t *b = &input.board;
-    if (b->available) {
-        lv_label_set_text_fmt(board_coverage, "授权 %u · 未覆盖 --", b->registered);
-        lv_label_set_text_fmt(board_counts, "%u / %u 项目 · 任务 %u / %u", b->index, b->projects, b->task_index, b->tasks);
-        const char *state = !strcmp(b->state, "running") ? "运行中" :
-            !strcmp(b->state, "needs_input") ? "等待确认" :
-            !strcmp(b->state, "failed") ? "执行失败" :
-            !strcmp(b->state, "ended_unverified") ? "执行结束 · 未验收" : "状态未知";
-        if (b->event_known) lv_label_set_text_fmt(board_event, "%s · %u 分钟前 · %s", b->source, b->event_age, b->file);
-        else lv_label_set_text(board_event, "暂无事件时间");
-        lv_label_set_text(task_state, b->stale ? "同步已过期" : state);
-        lv_label_set_text_fmt(task_name, "%s · %s", b->alias, b->title);
-        lv_label_set_text_fmt(task_profile, "模型 %s / %s", b->profile, b->effort);
-        lv_label_set_text(board_progress, b->progress[0] ? b->progress : "暂无详细进度");
-        if (b->tests_known) lv_label_set_text_fmt(task_owner, "测试 %u 通过 / %u 失败", b->passed, b->failed);
-        else lv_label_set_text(task_owner, "暂无真实测试结果");
-    } else {
-        lv_label_set_text(board_coverage, "授权 -- · 未覆盖 --");
-        lv_label_set_text(board_event, "暂无事件时间");
-        lv_label_set_text(board_counts, "项目 -- · 任务 --");
-        lv_label_set_text(task_state, "暂不可用");
-        lv_label_set_text(task_name, "等待授权同步");
-        lv_label_set_text(task_profile, "模型 --");
-        lv_label_set_text(board_progress, "暂无详细进度");
-        lv_label_set_text(task_owner, "暂无真实测试结果");
-    }
-    bool confirming = !strcmp(b->action, "confirm");
-    lv_label_set_text(lv_obj_get_child(board_buttons[0], 0), confirming ? "取消" : "上项目");
-    lv_label_set_text(lv_obj_get_child(board_buttons[1], 0), confirming ? "确认发送" : "下一任务");
-    lv_label_set_long_mode(board_progress, confirming ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
-    if (confirming) {
-        lv_label_set_text(task_state, "确认目标与指令");
-        lv_label_set_text(board_progress, b->instruction);
-    } else if (!strcmp(b->action, "checking") || !strcmp(b->action, "sending"))
-        lv_label_set_text(task_state, "正在发送");
-    else if (!strcmp(b->action, "sent")) lv_label_set_text(task_state, "已接收 · 待执行");
-    else if (!strcmp(b->action, "unknown")) lv_label_set_text(task_state, "操作结果未确认");
-    for (int i = 0; i < 3; i++) {
-        if (input.voice_ready && b->available && !b->stale && strcmp(b->action, "checking") && strcmp(b->action, "sending") && !(confirming && i == 2)) lv_obj_remove_state(board_buttons[i], LV_STATE_DISABLED);
-        else lv_obj_add_state(board_buttons[i], LV_STATE_DISABLED);
+    static muse_board_snapshot_t rendered_board;
+    static bool board_rendered, rendered_ready;
+    muse_board_snapshot_t visible_board = *b;
+    visible_board.revision = 0;
+    if (!board_rendered || rendered_ready != input.voice_ready ||
+        memcmp(&rendered_board, &visible_board, sizeof(visible_board))) {
+        rendered_board = visible_board;
+        rendered_ready = input.voice_ready;
+        board_rendered = true;
+        if (b->available) {
+            lv_label_set_text_fmt(board_coverage, "授权 %u · 未覆盖 --", b->registered);
+            lv_label_set_text_fmt(board_counts, "%u / %u 项目 · 任务 %u / %u", b->index, b->projects, b->task_index, b->tasks);
+            const char *state = !strcmp(b->state, "running") ? "运行中" :
+                !strcmp(b->state, "needs_input") ? "等待确认" :
+                !strcmp(b->state, "failed") ? "执行失败" :
+                !strcmp(b->state, "ended_unverified") ? "执行结束 · 未验收" : "状态未知";
+            if (b->event_known) lv_label_set_text_fmt(board_event, "%s · %u 分钟前 · %s", b->source, b->event_age, b->file);
+            else lv_label_set_text(board_event, "暂无事件时间");
+            lv_label_set_text(task_state, b->stale ? "同步已过期" : state);
+            lv_label_set_text_fmt(task_name, "%s · %s", b->alias, b->title);
+            lv_label_set_text_fmt(task_profile, "模型 %s / %s", b->profile, b->effort);
+            lv_label_set_text(board_progress, b->progress[0] ? b->progress : "暂无详细进度");
+            if (b->tests_known) lv_label_set_text_fmt(task_owner, "测试 %u 通过 / %u 失败", b->passed, b->failed);
+            else lv_label_set_text(task_owner, "暂无真实测试结果");
+        } else {
+            lv_label_set_text(board_coverage, "授权 -- · 未覆盖 --");
+            lv_label_set_text(board_event, "暂无事件时间");
+            lv_label_set_text(board_counts, "项目 -- · 任务 --");
+            lv_label_set_text(task_state, "暂不可用");
+            lv_label_set_text(task_name, "等待授权同步");
+            lv_label_set_text(task_profile, "模型 --");
+            lv_label_set_text(board_progress, "暂无详细进度");
+            lv_label_set_text(task_owner, "暂无真实测试结果");
+        }
+        bool confirming = !strcmp(b->action, "confirm");
+        lv_label_set_text(lv_obj_get_child(board_buttons[0], 0), confirming ? "取消" : "上项目");
+        lv_label_set_text(lv_obj_get_child(board_buttons[1], 0), confirming ? "确认发送" : "下一任务");
+        lv_label_set_long_mode(board_progress, confirming ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+        if (confirming) {
+            lv_label_set_text(task_state, "确认目标与指令");
+            lv_label_set_text(board_progress, b->instruction);
+        } else if (!strcmp(b->action, "checking") || !strcmp(b->action, "sending"))
+            lv_label_set_text(task_state, "正在发送");
+        else if (!strcmp(b->action, "sent")) lv_label_set_text(task_state, "已接收 · 待执行");
+        else if (!strcmp(b->action, "unknown")) lv_label_set_text(task_state, "操作结果未确认");
+        for (int i = 0; i < 3; i++) {
+            if (input.voice_ready && b->available && !b->stale && strcmp(b->action, "checking") && strcmp(b->action, "sending") && !(confirming && i == 2)) lv_obj_remove_state(board_buttons[i], LV_STATE_DISABLED);
+            else lv_obj_add_state(board_buttons[i], LV_STATE_DISABLED);
+        }
     }
     if (input.wechat_status && !strcmp(input.wechat_status, "available")) {
         lv_label_set_text_fmt(inbox_wechat, "%u 条待查看", input.wechat_count);
