@@ -23,7 +23,8 @@ static char device_name[65] = "muse-01";
 static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
 static lv_obj_t *record_button, *voice_status, *codex_status;
 static lv_obj_t *task_page, *inbox_page;
-static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
+static lv_obj_t *task_state, *task_profile, *task_owner, *task_name, *board_counts, *board_progress, *board_event, *board_coverage;
+static lv_obj_t *board_buttons[3];
 static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat, *wechat_sync, *wechat_categories;
 static lv_obj_t *pet_page, *garden_page, *garden_counter, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
 static uint16_t (*pet_pixels)[MUSE_PET_SPRITE_PIXELS];
@@ -259,6 +260,32 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t
     return obj;
 }
 
+static void board_action(lv_event_t *event)
+{
+    muse_audio_snapshot_t input;
+    muse_audio_snapshot(&input);
+    if (!input.voice_ready || !input.board.available || input.board.stale) return;
+    const char *action = lv_event_get_user_data(event);
+    if (!strcmp(input.board.action, "confirm")) {
+        if (!strcmp(action, "previous")) action = "cancel";
+        else if (!strcmp(action, "task")) action = "confirm";
+        else return;
+    }
+    ESP_LOGI("muse_ui", "UI_BOARD %s %u", action, input.board.revision);
+}
+
+static lv_obj_t *board_button(lv_obj_t *parent, const char *caption, int x, const char *action)
+{
+    lv_obj_t *obj = lv_button_create(parent);
+    lv_obj_set_size(obj, 90, 40);
+    lv_obj_align(obj, LV_ALIGN_TOP_MID, x, 350);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(0x293E49), 0);
+    lv_obj_add_event_cb(obj, board_action, LV_EVENT_CLICKED, (void *)action);
+    lv_obj_t *text = label(obj, caption, 0, 0, &muse_pet_zh_18, FG);
+    lv_obj_center(text);
+    return obj;
+}
+
 static lv_obj_t *row(lv_obj_t *parent, const char *name, int y)
 {
     lv_obj_t *key = label(parent, name, 0, y, &lv_font_montserrat_18, MUTED);
@@ -410,17 +437,46 @@ static void refresh(lv_timer_t *timer)
     lv_label_set_text(voice_status, input.voice_active ? activity : "");
     if (input.attention_known && input.attention_count && input.voice_ready)
         lv_label_set_text_fmt(voice_status, "Ready / Items needing you: %u", input.attention_count);
-    if (input.codex_state) {
-        value(task_state, input.codex_state, !input.codex_needs_user);
-        value(task_profile, input.codex_profile ? input.codex_profile : "Unknown", true);
-        value(task_owner, input.codex_needs_user ? "Needs your input" : "Monitor only",
-              !input.codex_needs_user);
-        lv_label_set_text(task_name, input.codex_title[0] ? input.codex_title : "Unnamed task");
+    const muse_board_snapshot_t *b = &input.board;
+    if (b->available) {
+        lv_label_set_text_fmt(board_coverage, "授权 %u · 未覆盖 --", b->registered);
+        lv_label_set_text_fmt(board_counts, "%u / %u 项目 · 任务 %u / %u", b->index, b->projects, b->task_index, b->tasks);
+        const char *state = !strcmp(b->state, "running") ? "运行中" :
+            !strcmp(b->state, "needs_input") ? "等待确认" :
+            !strcmp(b->state, "failed") ? "执行失败" :
+            !strcmp(b->state, "ended_unverified") ? "执行结束 · 未验收" : "暂无详细进度";
+        if (b->event_known) lv_label_set_text_fmt(board_event, "%s · %u 分钟前 · %s", b->source, b->event_age, b->file);
+        else lv_label_set_text(board_event, "暂无事件时间");
+        lv_label_set_text(task_state, b->stale ? "同步已过期" : state);
+        lv_label_set_text_fmt(task_name, "%s · %s", b->alias, b->title);
+        lv_label_set_text_fmt(task_profile, "模型 %s / %s", b->profile, b->effort);
+        lv_label_set_text(board_progress, b->progress[0] ? b->progress : "暂无详细进度");
+        if (b->tests_known) lv_label_set_text_fmt(task_owner, "测试 %u 通过 / %u 失败", b->passed, b->failed);
+        else lv_label_set_text(task_owner, "暂无真实测试结果");
     } else {
-        value(task_state, "No active task", false);
-        value(task_profile, "--", false);
-        value(task_owner, "No execution snapshot", false);
-        lv_label_set_text(task_name, "Waiting for CAO");
+        lv_label_set_text(board_coverage, "授权 -- · 未覆盖 --");
+        lv_label_set_text(board_event, "暂无事件时间");
+        lv_label_set_text(board_counts, "项目 -- · 任务 --");
+        lv_label_set_text(task_state, "暂不可用");
+        lv_label_set_text(task_name, "等待授权同步");
+        lv_label_set_text(task_profile, "模型 --");
+        lv_label_set_text(board_progress, "暂无详细进度");
+        lv_label_set_text(task_owner, "暂无真实测试结果");
+    }
+    bool confirming = !strcmp(b->action, "confirm");
+    lv_label_set_text(lv_obj_get_child(board_buttons[0], 0), confirming ? "取消" : "上项目");
+    lv_label_set_text(lv_obj_get_child(board_buttons[1], 0), confirming ? "确认发送" : "下一任务");
+    lv_label_set_long_mode(board_progress, confirming ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+    if (confirming) {
+        lv_label_set_text(task_state, "确认目标与指令");
+        lv_label_set_text(board_progress, b->instruction);
+    } else if (!strcmp(b->action, "checking") || !strcmp(b->action, "sending"))
+        lv_label_set_text(task_state, "正在发送");
+    else if (!strcmp(b->action, "sent")) lv_label_set_text(task_state, "已接收 · 待执行");
+    else if (!strcmp(b->action, "unknown")) lv_label_set_text(task_state, "操作结果未确认");
+    for (int i = 0; i < 3; i++) {
+        if (input.voice_ready && b->available && !b->stale && strcmp(b->action, "checking") && strcmp(b->action, "sending") && !(confirming && i == 2)) lv_obj_remove_state(board_buttons[i], LV_STATE_DISABLED);
+        else lv_obj_add_state(board_buttons[i], LV_STATE_DISABLED);
     }
     if (input.wechat_status && !strcmp(input.wechat_status, "available")) {
         lv_label_set_text_fmt(inbox_wechat, "%u 条待查看", input.wechat_count);
@@ -528,20 +584,24 @@ void muse_ui_start(void)
     lv_obj_set_width(back_button, 128);
     lv_obj_align(back_button, LV_ALIGN_TOP_MID, 70, 382);
     task_page = screen();
-    label(task_page, "Codex / Projects", 0, 69, &lv_font_montserrat_24, FG);
-    label(task_page, "Execution", 0, 118, &lv_font_montserrat_16, MUTED);
-    task_state = label(task_page, "No active task", 0, 152, &lv_font_montserrat_20, GREEN);
-    label(task_page, "Model profile", 0, 204, &lv_font_montserrat_16, MUTED);
-    task_profile = label(task_page, "--", 0, 234, &lv_font_montserrat_20, FG);
-    task_owner = label(task_page, "No execution snapshot", 0, 276,
-                       &lv_font_montserrat_16, MUTED);
-    task_name = label(task_page, "Waiting for CAO", 0, 312, &lv_font_montserrat_16, MUTED);
-    lv_obj_set_width(task_name, 280);
-    lv_label_set_long_mode(task_name, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(task_name, LV_TEXT_ALIGN_CENTER, 0);
-    label(task_page, "Ended does not mean accepted", 0, 348,
-          &lv_font_montserrat_14, MUTED);
-    button(task_page, "Speak", 382, show_audio);
+    label(task_page, "Codex 项目", 0, 66, &muse_pet_zh_18, FG);
+    board_counts = label(task_page, "项目 -- · 任务 --", 0, 96, &muse_pet_zh_18, MUTED);
+    board_coverage = label(task_page, "授权 -- · 未覆盖 --", 0, 120, &muse_pet_zh_18, MUTED);
+    task_state = label(task_page, "暂不可用", 0, 149, &muse_pet_zh_18, GREEN);
+    task_name = label(task_page, "等待授权同步", 0, 177, &muse_pet_zh_18, FG);
+    board_progress = label(task_page, "暂无详细进度", 0, 220, &muse_pet_zh_18, MUTED);
+    board_event = label(task_page, "暂无事件时间", 0, 252, &muse_pet_zh_18, MUTED);
+    task_profile = label(task_page, "模型 --", 0, 278, &muse_pet_zh_18, FG);
+    task_owner = label(task_page, "暂无真实测试结果", 0, 312, &muse_pet_zh_18, MUTED);
+    lv_obj_t *bounded[] = {task_name, board_progress, task_owner, board_event};
+    for (int i = 0; i < 4; i++) {
+        lv_obj_set_width(bounded[i], 294);
+        lv_label_set_long_mode(bounded[i], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(bounded[i], LV_TEXT_ALIGN_CENTER, 0);
+    }
+    board_buttons[0] = board_button(task_page, "上项目", -98, "previous");
+    board_buttons[1] = board_button(task_page, "下一任务", 0, "task");
+    board_buttons[2] = board_button(task_page, "下项目", 98, "next");
 
     inbox_page = screen();
     label(inbox_page, "Notifications", 0, 69, &lv_font_montserrat_24, FG);

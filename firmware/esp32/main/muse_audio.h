@@ -6,6 +6,13 @@
 #define MUSE_AUDIO_MAX_SECONDS 5
 
 typedef struct {
+    bool available, stale, tests_known, event_known;
+    unsigned int revision, projects, registered, index, task_index, tasks, passed, failed, event_age;
+    char alias[73], title[97], state[24], progress[121], profile[16], effort[12], source[24], file[65], action[16], instruction[241];
+} muse_board_snapshot_t;
+
+typedef struct {
+    muse_board_snapshot_t board;
     muse_audio_stats_t stats;
     bool ready, failed, recording, exporting;
     bool speaker_ready, receiving, playing;

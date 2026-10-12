@@ -21,6 +21,7 @@ from gateway.config import Settings
 from integrations.attention import AttentionObserver
 from integrations.cao import CAOClient, CAOError
 from integrations.chatgpt_plan import ChatGPTPlanProvider
+from integrations.codex_board import CodexBoard
 from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
@@ -319,6 +320,46 @@ async def serve(args):
             else None
         )
         device.device._muse_on_inbox = wechat.acknowledge if wechat else None
+        board = (
+            CodexBoard(
+                CAOClient(
+                    settings.codex_board_base_url or settings.cao_base_url,
+                    25,
+                    muse_token=settings.codex_board_token.get_secret_value(),
+                )
+            )
+            if settings.codex_board_enabled and not args.mock
+            else None
+        )
+        if isinstance(provider, PersonalAgentRouter):
+            provider.board = board
+            provider.board_control_enabled = settings.codex_board_control_enabled
+        loop = asyncio.get_running_loop()
+
+        async def handle_board_action(action, revision):
+            if not board or state[0] != "Ready" or revision != board.revision:
+                return
+            if action == "cancel":
+                board.pending = None
+                return
+            if action == "confirm":
+                if not settings.codex_board_control_enabled or not isinstance(
+                    provider, PersonalAgentRouter
+                ):
+                    return
+                try:
+                    await board.confirm(provider.execution)
+                except CAOError:
+                    board.action_state = "unknown"
+                return
+            board.navigate(action, revision)
+
+        def board_action(action, revision):
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(handle_board_action(action, revision))
+            )
+
+        device.device._muse_on_board = board_action
 
         def send_state(value=None):
             with device.lock:
@@ -326,6 +367,8 @@ async def serve(args):
                     state[0] = value
                 frame = {"voice_state": state[0], "attention_count": attention["count"]}
                 frame["wechat"] = wechat.frame if wechat else unavailable_frame()
+                if board:
+                    frame["board"] = board.frame()
                 execution = getattr(provider, "snapshot", None)
                 if execution:
                     frame["codex"] = {
@@ -334,7 +377,7 @@ async def serve(args):
                         "needs_user": bool(execution.get("needs_user")),
                         "title": execution.get("project_id", "Task")[:24],
                     }
-                device.device.write(json.dumps(frame).encode() + b"\n")
+                device.device.write(json.dumps(frame, ensure_ascii=False).encode() + b"\n")
 
         async def heartbeat():
             while True:
@@ -370,6 +413,13 @@ async def serve(args):
                     await wechat.refresh()
                 await asyncio.sleep(60)
 
+        async def poll_board():
+            while True:
+                if board:
+                    await board.refresh()
+                await asyncio.sleep(10)
+
+        board_task = asyncio.create_task(poll_board())
         wechat_task = asyncio.create_task(poll_wechat())
         attention_task = asyncio.create_task(poll_attention())
         task = asyncio.create_task(heartbeat())
@@ -382,12 +432,13 @@ async def serve(args):
                 await tts.worker.start()
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
+            board_task.cancel()
             wechat_task.cancel()
             attention_task.cancel()
             task.cancel()
             poll_task.cancel()
             await asyncio.gather(
-                task, poll_task, attention_task, wechat_task, return_exceptions=True
+                task, poll_task, attention_task, wechat_task, board_task, return_exceptions=True
             )
             if wechat:
                 wechat.close()
