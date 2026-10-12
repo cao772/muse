@@ -211,3 +211,29 @@ def test_display_subset_matches_compiled_font():
     ).read_text()
     exported = {chr(int(c, 16)) for c in re.findall(r"/\* U\+([0-9A-Fa-f]+)", font)}
     assert GLYPHS <= exported
+
+
+@async_test
+async def test_named_query_preserves_task_selected_on_screen():
+    client = AsyncMock()
+    client._get.return_value = data(tasks=3)
+    board = CodexBoard(client)
+    await board.refresh()
+    board.navigate("task", board.revision)
+    selected = board.selected[1].execution_id
+    board.query("P00现在做到哪里")
+    assert board.selected[1].execution_id == selected
+
+
+@async_test
+async def test_desktop_source_is_readonly_and_missing_models_stay_unknown():
+    client = AsyncMock()
+    d = data(tasks=1)
+    d["projects"][0]["tasks"][0].update(
+        source="codex_desktop", feedback_allowed=False, state="unknown"
+    )
+    client._get.return_value = d
+    board = CodexBoard(client)
+    await board.refresh()
+    assert "未知" in board.query("当前用什么模型和推理")
+    assert "不具备" in board.propose("追加反馈，运行测试")

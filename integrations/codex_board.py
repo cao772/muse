@@ -34,7 +34,7 @@ class Task(Strict):
     last_event_at: str | None = None
     model_profile: str | None = Field(default=None, pattern="^(fast|balanced|strong)$")
     reasoning_effort: str | None = Field(default=None, pattern="^(low|medium|high)$")
-    source: str = Field(pattern="^(cao_p2|registered_host)$")
+    source: str = Field(pattern="^(cao_p2|registered_host|codex_desktop)$")
     feedback_allowed: bool
     formal_completion: bool
 
@@ -53,7 +53,7 @@ class Coverage(Strict):
 
 class Snapshot(Strict):
     schema_version: int = Field(ge=1, le=1)
-    status: str = Field(pattern="^(available|stale)$")
+    status: str = Field(pattern="^(available|stale|unavailable)$")
     scope_id: str = Field(pattern="^[a-f0-9]{64}$")
     observed_at: str
     coverage: Coverage
@@ -217,6 +217,18 @@ class CodexBoard:
             return "Codex 看板暂不可用，不能确认实时进度。"
         if self.unknown_named_project(text):
             return "该项目尚未授权接入，请先核对项目清单。"
+        if any(w in text for w in ("所有", "哪些", "多少", "列表", "总览")):
+            projects = self.snapshot.projects
+            tasks = [t for p in projects for t in p.tasks]
+            waiting = sum(t.state == "needs_input" for t in tasks)
+            running = sum(t.state == "running" for t in tasks)
+            unknown = sum(t.state in {"unknown", "stale"} for t in tasks)
+            return (
+                f"当前接入{len(projects)}个有会话的项目，共{len(tasks)}项任务。"
+                f"已确认{running}项近期运行，{waiting}项等你，另有{unknown}项状态未知。"
+                "其他任务的运行状态以执行证据为准，未覆盖数量未知。"
+            )
+
         matches = [
             i
             for i, p in enumerate(self.snapshot.projects)
@@ -224,15 +236,24 @@ class CodexBoard:
         ]
         if len(matches) > 1:
             return "匹配到多个项目，请先在屏幕选中具体任务。"
+        changed_project = False
         if len(matches) == 1:
-            self.project_index, self.task_index = matches[0], 0
+            changed_project = matches[0] != self.project_index
+            self.project_index = matches[0]
+            if changed_project:
+                self.task_index = 0
             self.pending = None
             self.revision += 1
         if not self.selected:
             return "尚未接入可查看的 Codex 会话，其他本机任务覆盖数未知。"
         p, t = self.selected
-        if len(p.tasks) > 1 and len(matches) == 1:
+        if len(p.tasks) > 1 and changed_project:
             return f"{p.alias}有{len(p.tasks)}项任务，请在屏幕选择准确会话。"
+        if any(w in text.lower() for w in ("模型", "推理", "profile", "reasoning")):
+            return (
+                f"当前{p.alias}任务的模型档位{t.model_profile or '未知'}，"
+                f"推理{t.reasoning_effort or '未知'}。没有记录的数据不会猜测。"
+            )
         states = {
             "running": "运行中",
             "needs_input": "等待你",

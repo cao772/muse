@@ -444,7 +444,7 @@ static void refresh(lv_timer_t *timer)
         const char *state = !strcmp(b->state, "running") ? "运行中" :
             !strcmp(b->state, "needs_input") ? "等待确认" :
             !strcmp(b->state, "failed") ? "执行失败" :
-            !strcmp(b->state, "ended_unverified") ? "执行结束 · 未验收" : "暂无详细进度";
+            !strcmp(b->state, "ended_unverified") ? "执行结束 · 未验收" : "状态未知";
         if (b->event_known) lv_label_set_text_fmt(board_event, "%s · %u 分钟前 · %s", b->source, b->event_age, b->file);
         else lv_label_set_text(board_event, "暂无事件时间");
         lv_label_set_text(task_state, b->stale ? "同步已过期" : state);
