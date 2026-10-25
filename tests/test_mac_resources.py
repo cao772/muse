@@ -46,6 +46,7 @@ def test_mac_parsers():
     assert _pressure("2") == "warning"
     assert _pressure("garbled") == "unknown"
     assert _top_processes(fake(["/bin/ps"]))[0]["name"] == "Codex"
+    assert _top_processes(fake(["/bin/ps"]), order="cpu")[0]["name"] == "Codex"
 
 
 def test_monitor_read_only_mac_snapshot():
@@ -59,6 +60,7 @@ def test_monitor_read_only_mac_snapshot():
     assert snapshot["thermal"] == "unknown"
     assert snapshot["pressure"] == "normal"
     assert snapshot["top_memory_processes"][0]["name"] == "Codex"
+    assert snapshot["top_cpu_processes"][0]["name"] == "Codex"
     assert "command_line" not in str(snapshot)
     assert monitor.current()["status"] == "available"
 
