@@ -42,6 +42,7 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
         out->attention_known = false;
         out->wechat_status = "unavailable";
+        out->mac_status = "unavailable";
         out->voice_ready = false; out->voice_state = "Host offline";
         if (out->codex_state) out->codex_state = "Unknown";
     }
@@ -94,6 +95,14 @@ static bool bounded_uint(cJSON *obj, const char *key, unsigned int max, unsigned
     return true;
 }
 
+static bool bounded_float(cJSON *obj, const char *key, float max, float *out)
+{
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsNumber(v) || v->valuedouble < 0 || v->valuedouble > max) return false;
+    *out = (float)v->valuedouble;
+    return true;
+}
+
 static void command_task(void *arg)
 {
     char line[1536];
@@ -143,6 +152,53 @@ static void command_task(void *arg)
             snapshot.wechat_count = count; snapshot.wechat_sync_age = age;
             snapshot.wechat_mentions = mentions; snapshot.wechat_tasks = tasks;
             snapshot.wechat_blockers = blockers;
+            portEXIT_CRITICAL(&audio_lock);
+        }
+        cJSON *mac = cJSON_GetObjectItemCaseSensitive(obj, "mac");
+        if (cJSON_IsObject(mac)) {
+            const char *state = "unavailable", *alert = "unknown";
+            const char *thermal = "unknown", *pressure = "unknown";
+            float ram = 0, used = 0, swap = -1, disk = -1;
+            unsigned int cpu = 0, age = 0;
+            bool cpu_ok = bounded_uint(mac, "cpu_pct", 100, &cpu);
+            bool ram_ok = bounded_float(mac, "memory_total_gb", 4096, &ram) &&
+                bounded_float(mac, "memory_used_gb", 4096, &used) &&
+                ram > 0 && used <= ram;
+            cJSON *st = cJSON_GetObjectItemCaseSensitive(mac, "status");
+            if (cJSON_IsString(st) && !strcmp(st->valuestring, "available") && ram_ok) {
+                state = "available";
+                cJSON *a = cJSON_GetObjectItemCaseSensitive(mac, "alert");
+                cJSON *t = cJSON_GetObjectItemCaseSensitive(mac, "thermal");
+                cJSON *p = cJSON_GetObjectItemCaseSensitive(mac, "pressure");
+                if (cJSON_IsString(a)) {
+                    if (!strcmp(a->valuestring, "critical")) alert = "critical";
+                    else if (!strcmp(a->valuestring, "warning")) alert = "warning";
+                    else if (!strcmp(a->valuestring, "normal")) alert = "normal";
+                }
+                if (cJSON_IsString(t)) {
+                    if (!strcmp(t->valuestring, "critical")) thermal = "critical";
+                    else if (!strcmp(t->valuestring, "serious")) thermal = "serious";
+                    else if (!strcmp(t->valuestring, "fair")) thermal = "fair";
+                    else if (!strcmp(t->valuestring, "nominal")) thermal = "nominal";
+                }
+                if (cJSON_IsString(p)) {
+                    if (!strcmp(p->valuestring, "critical")) pressure = "critical";
+                    else if (!strcmp(p->valuestring, "warning")) pressure = "warning";
+                    else if (!strcmp(p->valuestring, "normal")) pressure = "normal";
+                }
+                bounded_float(mac, "swap_used_gb", 4096, &swap);
+                bounded_float(mac, "disk_free_gb", 100000, &disk);
+                bounded_uint(mac, "sample_age_seconds", 45, &age);
+            }
+            portENTER_CRITICAL(&audio_lock);
+            snapshot.mac_status = state; snapshot.mac_alert = alert;
+            snapshot.mac_thermal = thermal; snapshot.mac_pressure = pressure;
+            snapshot.mac_ram_gb = ram_ok && !strcmp(state, "available") ? ram : -1;
+            snapshot.mac_used_gb = ram_ok && !strcmp(state, "available") ? used : -1;
+            snapshot.mac_cpu_pct = !strcmp(state, "available") && cpu_ok ? (int)cpu : -1;
+            snapshot.mac_swap_gb = !strcmp(state, "available") ? swap : -1;
+            snapshot.mac_disk_free_gb = !strcmp(state, "available") ? disk : -1;
+            snapshot.mac_age_seconds = age;
             portEXIT_CRITICAL(&audio_lock);
         }
         cJSON *codex = cJSON_GetObjectItemCaseSensitive(obj, "codex");
