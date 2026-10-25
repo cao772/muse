@@ -96,13 +96,9 @@ def test_sustained_warning_and_recovery():
 
     with patch("integrations.mac_resources.platform.system", return_value="Darwin"):
         monitor = MacResourceMonitor(command=hot)
-        assert [monitor.collect()["alert"] for _ in range(3)] == [
-            "normal", "normal", "warning"
-        ]
+        assert [monitor.collect()["alert"] for _ in range(3)] == ["normal", "normal", "warning"]
         monitor.command = fake
-        assert [monitor.collect()["alert"] for _ in range(3)] == [
-            "warning", "warning", "normal"
-        ]
+        assert [monitor.collect()["alert"] for _ in range(3)] == ["warning", "warning", "normal"]
 
 
 def test_critical_pressure_immediate():
