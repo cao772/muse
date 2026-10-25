@@ -45,14 +45,10 @@ def _vm_gib(output: str, physical: int) -> float | None:
         return None
     pages = []
     for label in ("Pages active", "Pages wired down", "Pages occupied by compressor"):
-        count = _number(output, rf"^{re.escape(label)}:\s*([0-9]+)\.",)
-        if count is None:
-            # vm_stat fields have trailing dots; include multiline matching below.
-            match = re.search(rf"^{re.escape(label)}:\s*([0-9]+)\.", output, re.M)
-            count = float(match.group(1)) if match else None
-        if count is None:
+        match = re.search(rf"^{re.escape(label)}:\s*([0-9]+)\.", output, re.M)
+        if not match:
             return None
-        pages.append(count)
+        pages.append(int(match.group(1)))
     return _gib(min(physical, sum(pages) * size))
 
 
@@ -102,12 +98,10 @@ def _top_processes(output: str, *, order: str = "memory") -> list[dict]:
         if not re.fullmatch(r"[\w .+()-]{1,24}", name):
             continue
         result.append({"name": name, "rss_mb": round(rss / 1024), "cpu": round(cpu, 1)})
-    metric = (
-        (lambda row: (row["cpu"], row["rss_mb"]))
-        if order == "cpu"
-        else (lambda row: (row["rss_mb"], row["cpu"]))
-    )
-    return sorted(result, key=metric, reverse=True)[:3]
+    primary, secondary = ("cpu", "rss_mb") if order == "cpu" else ("rss_mb", "cpu")
+    return sorted(
+        result, key=lambda row: (row[primary], row[secondary]), reverse=True
+    )[:3]
 
 
 def unavailable_frame() -> dict:
