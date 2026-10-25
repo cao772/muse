@@ -23,7 +23,8 @@ typedef struct {
     int mac_cpu_pct;
     float mac_ram_gb, mac_used_gb, mac_swap_gb, mac_disk_free_gb;
     unsigned int mac_age_seconds;
-    char mac_top_process[25];
+    char mac_top_process[25], mac_top_cpu_process[25];
+    unsigned int mac_top_memory_mb, mac_top_cpu_pct;
 } muse_audio_snapshot_t;
 
 void muse_audio_start(void);
