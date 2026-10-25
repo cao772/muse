@@ -19,6 +19,11 @@ typedef struct {
     unsigned int wechat_count, wechat_sync_age;
     unsigned int wechat_mentions, wechat_tasks, wechat_blockers;
     char codex_title[25];
+    const char *mac_status, *mac_alert, *mac_thermal, *mac_pressure;
+    int mac_cpu_pct;
+    float mac_ram_gb, mac_used_gb, mac_swap_gb, mac_disk_free_gb;
+    unsigned int mac_age_seconds;
+    char mac_top_process[25];
 } muse_audio_snapshot_t;
 
 void muse_audio_start(void);
