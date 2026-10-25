@@ -25,6 +25,7 @@ static lv_obj_t *record_button, *voice_status, *codex_status;
 static lv_obj_t *task_page, *inbox_page, *resource_page;
 static lv_obj_t *resource_cpu, *resource_ram, *resource_swap, *resource_disk;
 static lv_obj_t *resource_heat, *resource_pressure, *resource_alert, *resource_age;
+static lv_obj_t *resource_top_mem, *resource_top_cpu;
 static lv_obj_t *mac_home_alert;
 static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
 static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat, *wechat_sync, *wechat_categories;
@@ -456,6 +457,14 @@ static void refresh(lv_timer_t *timer)
         lv_label_set_text_fmt(resource_pressure, "Memory pressure  %s",
             input.mac_pressure ?: "unknown");
         lv_label_set_text_fmt(resource_age, "Mac sample  %us ago", input.mac_age_seconds);
+        if (input.mac_top_process[0])
+            lv_label_set_text_fmt(resource_top_mem, "Top RAM: %s  %uMB",
+                input.mac_top_process, input.mac_top_memory_mb);
+        else lv_label_set_text(resource_top_mem, "Top RAM: hidden");
+        if (input.mac_top_cpu_process[0])
+            lv_label_set_text_fmt(resource_top_cpu, "Top CPU: %s  %u%%",
+                input.mac_top_cpu_process, input.mac_top_cpu_pct);
+        else lv_label_set_text(resource_top_cpu, "Top CPU: hidden");
         const char *alert = input.mac_alert ?: "unknown";
         lv_label_set_text_fmt(resource_alert, "Resource alert  %s", alert);
         lv_obj_set_style_text_color(resource_alert,
@@ -474,6 +483,8 @@ static void refresh(lv_timer_t *timer)
         lv_label_set_text(resource_heat, "Thermal  unknown");
         lv_label_set_text(resource_pressure, "Memory pressure  unknown");
         lv_label_set_text(resource_age, "Mac source unavailable");
+        lv_label_set_text(resource_top_mem, "Top RAM: --");
+        lv_label_set_text(resource_top_cpu, "Top CPU: --");
         lv_label_set_text(resource_alert, "Resource alert  unknown");
         lv_obj_set_style_text_color(resource_alert, lv_color_hex(MUTED), 0);
         lv_label_set_text(mac_home_alert, "");
@@ -503,7 +514,7 @@ void muse_ui_start(void)
     ESP_ERROR_CHECK(bsp_display_lock((uint32_t)-1));
     home = screen();
     label(home, "LOCAL AGENT", 0, 58, &lv_font_montserrat_16, MUTED);
-    mac_home_alert = label(home, "", 0, 19, &lv_font_montserrat_14, 0xFFC06B);
+    mac_home_alert = label(home, "", 0, 74, &lv_font_montserrat_14, 0xFFC06B);
     // Small vector face: no external assets, emoji font, or animation required.
     lv_obj_t *face = lv_obj_create(home);
     lv_obj_set_size(face, 84, 50);
@@ -601,9 +612,13 @@ void muse_ui_start(void)
         &lv_font_montserrat_16, MUTED);
     resource_alert = label(resource_page, "Resource alert  unknown", 0, 332,
         &lv_font_montserrat_16, GREEN);
-    resource_age = label(resource_page, "Mac source unavailable", 0, 357,
+    resource_top_mem = label(resource_page, "Top RAM: --", 0, 355,
         &lv_font_montserrat_14, MUTED);
-    button(resource_page, "Back", 382, show_home);
+    resource_top_cpu = label(resource_page, "Top CPU: --", 0, 376,
+        &lv_font_montserrat_14, MUTED);
+    resource_age = label(resource_page, "Mac source unavailable", 0, 398,
+        &lv_font_montserrat_14, MUTED);
+    button(resource_page, "Back", 421, show_home);
 
     inbox_page = screen();
     label(inbox_page, "Notifications", 0, 69, &lv_font_montserrat_24, FG);
