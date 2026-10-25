@@ -406,8 +406,7 @@ async def serve(args):
             task.cancel()
             poll_task.cancel()
             await asyncio.gather(
-                task, poll_task, attention_task, wechat_task, mac_task,
-                return_exceptions=True
+                task, poll_task, attention_task, wechat_task, mac_task, return_exceptions=True
             )
             if wechat:
                 wechat.close()
