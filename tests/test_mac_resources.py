@@ -35,7 +35,10 @@ def fake(args):
     if "top" in args[0]:
         return TOP
     if "ps" in args[0]:
-        return "1048576 125.4 /Applications/Codex.app/Contents/MacOS/Codex\n2048 0.1 /usr/bin/python3\n"
+        return (
+            "1048576 125.4 /Applications/Codex.app/Contents/MacOS/Codex\n"
+            "2048 0.1 /usr/bin/python3\n"
+        )
     raise AssertionError(args)
 
 
