@@ -212,7 +212,11 @@ static void command_task(void *arg)
                         dest[n] = 0;
                     }
                     if (first) {
-                        if (i) bounded_uint(first, "cpu", 1600, &top_cpu_pct);
+                        if (i) {
+                            float cpu_value = 0;
+                            if (bounded_float(first, "cpu", 1600, &cpu_value))
+                                top_cpu_pct = (unsigned int)(cpu_value + 0.5f);
+                        }
                         else bounded_uint(first, "rss_mb", 1000000, &top_mem_mb);
                     }
                 }
