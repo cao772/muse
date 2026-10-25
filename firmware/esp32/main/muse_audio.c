@@ -190,7 +190,38 @@ static void command_task(void *arg)
                 bounded_float(mac, "disk_free_gb", 100000, &disk);
                 bounded_uint(mac, "sample_age_seconds", 45, &age);
             }
+            char top_mem[25] = {0}, top_cpu[25] = {0};
+            unsigned int top_mem_mb = 0, top_cpu_pct = 0;
+            if (!strcmp(state, "available")) {
+                const char *keys[] = {"top_memory_processes", "top_cpu_processes"};
+                for (unsigned int i = 0; i < 2; ++i) {
+                    cJSON *items = cJSON_GetObjectItemCaseSensitive(mac, keys[i]);
+                    cJSON *first = cJSON_IsArray(items) ? cJSON_GetArrayItem(items, 0) : NULL;
+                    cJSON *name = cJSON_GetObjectItemCaseSensitive(first, "name");
+                    char *dest = i ? top_cpu : top_mem;
+                    if (cJSON_IsString(name)) {
+                        size_t n = 0;
+                        for (const char *p = name->valuestring; *p && n < 24; ++p) {
+                            char c = *p;
+                            if (!((c >= 'a' && c <= 'z') ||
+                                (c >= 'A' && c <= 'Z') ||
+                                (c >= '0' && c <= '9') || c == ' ' || c == '-' || c == '.'))
+                                break;
+                            dest[n++] = c;
+                        }
+                        dest[n] = 0;
+                    }
+                    if (first) {
+                        if (i) bounded_uint(first, "cpu", 1600, &top_cpu_pct);
+                        else bounded_uint(first, "rss_mb", 1000000, &top_mem_mb);
+                    }
+                }
+            }
             portENTER_CRITICAL(&audio_lock);
+            memcpy(snapshot.mac_top_process, top_mem, sizeof(top_mem));
+            memcpy(snapshot.mac_top_cpu_process, top_cpu, sizeof(top_cpu));
+            snapshot.mac_top_memory_mb = top_mem_mb;
+            snapshot.mac_top_cpu_pct = top_cpu_pct;
             snapshot.mac_status = state; snapshot.mac_alert = alert;
             snapshot.mac_thermal = thermal; snapshot.mac_pressure = pressure;
             snapshot.mac_ram_gb = ram_ok && !strcmp(state, "available") ? ram : -1;
