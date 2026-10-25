@@ -22,7 +22,10 @@ static int64_t last_pong;
 static char device_name[65] = "muse-01";
 static lv_obj_t *audio_page, *audio_state, *audio_levels[2], *audio_numbers[2], *audio_clipping;
 static lv_obj_t *record_button, *voice_status, *codex_status;
-static lv_obj_t *task_page, *inbox_page;
+static lv_obj_t *task_page, *inbox_page, *resource_page;
+static lv_obj_t *resource_cpu, *resource_ram, *resource_swap, *resource_disk;
+static lv_obj_t *resource_heat, *resource_pressure, *resource_alert, *resource_age;
+static lv_obj_t *mac_home_alert;
 static lv_obj_t *task_state, *task_profile, *task_owner, *task_name;
 static lv_obj_t *inbox_count, *inbox_sync, *inbox_wechat, *wechat_sync, *wechat_categories;
 static lv_obj_t *pet_page, *garden_page, *garden_counter, *pet_face, *pet_counter, *pet_mood, *pet_sprite;
@@ -32,7 +35,8 @@ static muse_pet_pose_t last_pet_pose = MUSE_PET_POSE_COUNT;
 static int64_t last_pet_interaction_us, pet_play_started_us;
 static muse_pet_play_t pet_play;
 static lv_obj_t *plots[MUSE_PET_PLOTS], *plot_text[MUSE_PET_PLOTS], *plot_sprout[MUSE_PET_PLOTS], *plot_fruit[MUSE_PET_PLOTS];
-enum { PAGE_HOME, PAGE_AUDIO, PAGE_TASK, PAGE_INBOX, PAGE_PET, PAGE_GARDEN, PAGE_NETWORK, PAGE_TOTAL };
+enum { PAGE_HOME, PAGE_AUDIO, PAGE_TASK, PAGE_INBOX, PAGE_RESOURCES,
+       PAGE_PET, PAGE_GARDEN, PAGE_NETWORK, PAGE_TOTAL };
 static lv_obj_t *pages[PAGE_TOTAL];
 static unsigned int active_page;
 static lv_obj_t *home, *details, *title, *wifi, *gateway, *auth, *heartbeat;
@@ -78,7 +82,7 @@ static void touch(lv_event_t *event)
 }
 
 static const char *page_names[PAGE_TOTAL] = {
-    "home", "audio", "tasks", "inbox", "shiyi", "garden", "network",
+    "home", "audio", "tasks", "inbox", "resources", "shiyi", "garden", "network",
 };
 
 static void load_page(unsigned int index)
@@ -433,6 +437,47 @@ static void refresh(lv_timer_t *timer)
         lv_label_set_text(wechat_sync, "不是微信实时未读数");
         lv_label_set_text(wechat_categories, "仅授权项目群 · 静默");
     }
+    if (input.mac_status && !strcmp(input.mac_status, "available")) {
+        if (input.mac_cpu_pct >= 0)
+            lv_label_set_text_fmt(resource_cpu, "CPU  %d%%", input.mac_cpu_pct);
+        else lv_label_set_text(resource_cpu, "CPU  --");
+        if (input.mac_ram_gb > 0 && input.mac_used_gb >= 0)
+            lv_label_set_text_fmt(resource_ram, "RAM  %.1f / %.1f GB (est.)",
+                (double)input.mac_used_gb, (double)input.mac_ram_gb);
+        else lv_label_set_text(resource_ram, "RAM  --");
+        if (input.mac_swap_gb >= 0)
+            lv_label_set_text_fmt(resource_swap, "Swap  %.1f GB", (double)input.mac_swap_gb);
+        else lv_label_set_text(resource_swap, "Swap  --");
+        if (input.mac_disk_free_gb >= 0)
+            lv_label_set_text_fmt(resource_disk, "Disk free  %.1f GB",
+                (double)input.mac_disk_free_gb);
+        else lv_label_set_text(resource_disk, "Disk free  --");
+        lv_label_set_text_fmt(resource_heat, "Thermal  %s", input.mac_thermal ?: "unknown");
+        lv_label_set_text_fmt(resource_pressure, "Memory pressure  %s",
+            input.mac_pressure ?: "unknown");
+        lv_label_set_text_fmt(resource_age, "Mac sample  %us ago", input.mac_age_seconds);
+        const char *alert = input.mac_alert ?: "unknown";
+        lv_label_set_text_fmt(resource_alert, "Resource alert  %s", alert);
+        lv_obj_set_style_text_color(resource_alert,
+            lv_color_hex(!strcmp(alert, "critical") ? 0xFF7272 :
+                         !strcmp(alert, "warning") ? 0xFFC06B : GREEN), 0);
+        bool danger = !strcmp(alert, "critical") || !strcmp(alert, "warning");
+        lv_label_set_text(mac_home_alert, !danger ? "" :
+            !strcmp(alert, "critical") ? "MAC CRITICAL" : "MAC WARNING");
+        lv_obj_set_style_text_color(mac_home_alert,
+            lv_color_hex(!strcmp(alert, "critical") ? 0xFF7272 : 0xFFC06B), 0);
+    } else {
+        lv_label_set_text(resource_cpu, "CPU  --");
+        lv_label_set_text(resource_ram, "RAM  --");
+        lv_label_set_text(resource_swap, "Swap  --");
+        lv_label_set_text(resource_disk, "Disk free  --");
+        lv_label_set_text(resource_heat, "Thermal  unknown");
+        lv_label_set_text(resource_pressure, "Memory pressure  unknown");
+        lv_label_set_text(resource_age, "Mac source unavailable");
+        lv_label_set_text(resource_alert, "Resource alert  unknown");
+        lv_obj_set_style_text_color(resource_alert, lv_color_hex(MUTED), 0);
+        lv_label_set_text(mac_home_alert, "");
+    }
     if (input.attention_known) {
         lv_label_set_text_fmt(inbox_count, "%u pending", input.attention_count);
         value(inbox_sync, "CAO snapshot via USB", true);
@@ -458,6 +503,7 @@ void muse_ui_start(void)
     ESP_ERROR_CHECK(bsp_display_lock((uint32_t)-1));
     home = screen();
     label(home, "LOCAL AGENT", 0, 58, &lv_font_montserrat_16, MUTED);
+    mac_home_alert = label(home, "", 0, 19, &lv_font_montserrat_14, 0xFFC06B);
     // Small vector face: no external assets, emoji font, or animation required.
     lv_obj_t *face = lv_obj_create(home);
     lv_obj_set_size(face, 84, 50);
@@ -542,6 +588,22 @@ void muse_ui_start(void)
     label(task_page, "Ended does not mean accepted", 0, 348,
           &lv_font_montserrat_14, MUTED);
     button(task_page, "Speak", 382, show_audio);
+
+    resource_page = screen();
+    label(resource_page, "Mac Resources", 0, 69, &lv_font_montserrat_24, FG);
+    resource_cpu = label(resource_page, "CPU  --", 0, 112, &lv_font_montserrat_20, FG);
+    resource_ram = label(resource_page, "RAM  --", 0, 154, &lv_font_montserrat_18, FG);
+    resource_swap = label(resource_page, "Swap  --", 0, 194, &lv_font_montserrat_18, FG);
+    resource_disk = label(resource_page, "Disk free  --", 0, 234, &lv_font_montserrat_18, FG);
+    resource_heat = label(resource_page, "Thermal  unknown", 0, 271,
+        &lv_font_montserrat_16, MUTED);
+    resource_pressure = label(resource_page, "Memory pressure  unknown", 0, 302,
+        &lv_font_montserrat_16, MUTED);
+    resource_alert = label(resource_page, "Resource alert  unknown", 0, 332,
+        &lv_font_montserrat_16, GREEN);
+    resource_age = label(resource_page, "Mac source unavailable", 0, 357,
+        &lv_font_montserrat_14, MUTED);
+    button(resource_page, "Back", 382, show_home);
 
     inbox_page = screen();
     label(inbox_page, "Notifications", 0, 69, &lv_font_montserrat_24, FG);
@@ -654,6 +716,7 @@ void muse_ui_start(void)
     pages[PAGE_AUDIO] = audio_page;
     pages[PAGE_TASK] = task_page;
     pages[PAGE_INBOX] = inbox_page;
+    pages[PAGE_RESOURCES] = resource_page;
     pages[PAGE_PET] = pet_page;
     pages[PAGE_GARDEN] = garden_page;
     pages[PAGE_NETWORK] = details;
