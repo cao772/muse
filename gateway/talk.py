@@ -23,11 +23,11 @@ from integrations.cao import CAOClient, CAOError
 from integrations.chatgpt_plan import ChatGPTPlanProvider
 from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
+from integrations.local_tts import RUNTIME
 from integrations.mac_resources import (
     MacResourceMonitor,
     unavailable_frame as mac_unavailable_frame,
 )
-from integrations.local_tts import RUNTIME
 from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
