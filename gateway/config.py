@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     wechat_token: SecretStr = SecretStr("")
     wechat_base_url: str = ""
     wechat_cursor_path: str = "~/.local/share/muse/wechat-cursor.sqlite3"
+    mac_resources_enabled: bool = False
+    mac_thermal_helper: str = ""
+    mac_show_processes: bool = False
     chatgpt_enabled: bool = False
     chatgpt_auto_enabled: bool = True
     chatgpt_credentials_path: str = "~/.config/muse/chatgpt-plan.json"
