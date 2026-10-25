@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "muse_audio.h"
 #include "bsp/esp-bsp.h"
 #include "cJSON.h"
@@ -40,8 +41,10 @@ void muse_audio_snapshot(muse_audio_snapshot_t *out)
     portENTER_CRITICAL(&audio_lock);
     *out = snapshot;
     if (out->voice_active && esp_timer_get_time() > voice_deadline) {
+        out->board.available = false;
         out->attention_known = false;
         out->wechat_status = "unavailable";
+        out->mac_status = "unavailable";
         out->voice_ready = false; out->voice_state = "Host offline";
         if (out->codex_state) out->codex_state = "Unknown";
     }
@@ -94,9 +97,61 @@ static bool bounded_uint(cJSON *obj, const char *key, unsigned int max, unsigned
     return true;
 }
 
+static bool bounded_float(cJSON *obj, const char *key, float max, float *out)
+{
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsNumber(v) || !isfinite(v->valuedouble) || v->valuedouble < 0 || v->valuedouble > max) return false;
+    *out = (float)v->valuedouble;
+    return true;
+}
+
+static bool board_string(cJSON *obj, const char *key, char *out, size_t size)
+{
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsString(v) || strlen(v->valuestring) >= size) return false;
+    for (const unsigned char *p = (const unsigned char *)v->valuestring; *p; p++)
+        if (*p < 32) return false;
+    snprintf(out, size, "%s", v->valuestring);
+    return true;
+}
+
+static void board_command(cJSON *obj)
+{
+    cJSON *b = cJSON_GetObjectItemCaseSensitive(obj, "board");
+    if (!b) return;
+    muse_board_snapshot_t next = {0};
+    char status[16] = {0};
+    bool valid = board_string(b, "status", status, sizeof(status)) &&
+        bounded_uint(b, "revision", 999999999, &next.revision);
+    next.stale = !strcmp(status, "stale");
+    next.available = valid && (!strcmp(status, "available") || next.stale) &&
+        bounded_uint(b, "projects", 50, &next.projects) &&
+        bounded_uint(b, "registered", 10000, &next.registered) &&
+        bounded_uint(b, "index", 50, &next.index) &&
+        bounded_uint(b, "task_index", 5, &next.task_index) &&
+        bounded_uint(b, "tasks", 5, &next.tasks) &&
+        next.index <= next.projects && next.task_index <= next.tasks &&
+        board_string(b, "alias", next.alias, sizeof(next.alias)) &&
+        board_string(b, "title", next.title, sizeof(next.title)) &&
+        board_string(b, "state", next.state, sizeof(next.state)) &&
+        board_string(b, "progress", next.progress, sizeof(next.progress)) &&
+        board_string(b, "profile", next.profile, sizeof(next.profile));
+    board_string(b, "effort", next.effort, sizeof(next.effort));
+    board_string(b, "source", next.source, sizeof(next.source));
+    board_string(b, "action", next.action, sizeof(next.action));
+    board_string(b, "instruction", next.instruction, sizeof(next.instruction));
+    board_string(b, "file", next.file, sizeof(next.file));
+    next.event_known = bounded_uint(b, "event_age", 9999, &next.event_age);
+    next.tests_known = bounded_uint(b, "passed", 100000, &next.passed) &&
+                       bounded_uint(b, "failed", 100000, &next.failed);
+    portENTER_CRITICAL(&audio_lock);
+    snapshot.board = next;
+    portEXIT_CRITICAL(&audio_lock);
+}
+
 static void command_task(void *arg)
 {
-    char line[1536];
+    static char line[4096];
     size_t used = 0;
     bool overflow = false;
     for (;;) {
@@ -112,6 +167,7 @@ static void command_task(void *arg)
         }
         line[used] = 0;
         cJSON *obj = overflow ? NULL : cJSON_Parse(line);
+        board_command(obj);
         cJSON *attention = cJSON_GetObjectItemCaseSensitive(obj, "attention_count");
         if (attention) {
             portENTER_CRITICAL(&audio_lock);
@@ -143,6 +199,100 @@ static void command_task(void *arg)
             snapshot.wechat_count = count; snapshot.wechat_sync_age = age;
             snapshot.wechat_mentions = mentions; snapshot.wechat_tasks = tasks;
             snapshot.wechat_blockers = blockers;
+            portEXIT_CRITICAL(&audio_lock);
+        }
+        cJSON *mac = cJSON_GetObjectItemCaseSensitive(obj, "mac");
+        if (cJSON_IsObject(mac)) {
+            const char *state = "unavailable", *alert = "unknown";
+            const char *thermal = "unknown", *pressure = "unknown";
+            float ram = 0, used = 0, swap = -1, disk = -1, disk_total = -1, growth = -1;
+            const char *reason = "none";
+            unsigned int cpu = 0, age = 0;
+            bool cpu_ok = bounded_uint(mac, "cpu_pct", 100, &cpu);
+            bool ram_ok = bounded_float(mac, "memory_total_gb", 4096, &ram) &&
+                bounded_float(mac, "memory_used_gb", 4096, &used) &&
+                ram > 0 && used <= ram;
+            cJSON *st = cJSON_GetObjectItemCaseSensitive(mac, "status");
+            if (cJSON_IsString(st) && !strcmp(st->valuestring, "available") && ram_ok &&
+                bounded_uint(mac, "sample_age_seconds", 45, &age)) {
+                state = "available";
+                cJSON *a = cJSON_GetObjectItemCaseSensitive(mac, "alert");
+                cJSON *t = cJSON_GetObjectItemCaseSensitive(mac, "thermal");
+                cJSON *p = cJSON_GetObjectItemCaseSensitive(mac, "pressure");
+                if (cJSON_IsString(a)) {
+                    if (!strcmp(a->valuestring, "critical")) alert = "critical";
+                    else if (!strcmp(a->valuestring, "warning")) alert = "warning";
+                    else if (!strcmp(a->valuestring, "normal")) alert = "normal";
+                }
+                if (cJSON_IsString(t)) {
+                    if (!strcmp(t->valuestring, "critical")) thermal = "critical";
+                    else if (!strcmp(t->valuestring, "serious")) thermal = "serious";
+                    else if (!strcmp(t->valuestring, "fair")) thermal = "fair";
+                    else if (!strcmp(t->valuestring, "nominal")) thermal = "nominal";
+                }
+                if (cJSON_IsString(p)) {
+                    if (!strcmp(p->valuestring, "critical")) pressure = "critical";
+                    else if (!strcmp(p->valuestring, "warning")) pressure = "warning";
+                    else if (!strcmp(p->valuestring, "normal")) pressure = "normal";
+                }
+                bounded_float(mac, "swap_used_gb", 4096, &swap);
+                bounded_float(mac, "disk_free_gb", 100000, &disk);
+                bounded_float(mac, "disk_total_gb", 100000, &disk_total);
+                bounded_float(mac, "swap_growth_gb", 4096, &growth);
+                cJSON *reasons = cJSON_GetObjectItemCaseSensitive(mac, "reasons");
+                cJSON *first_reason = cJSON_IsArray(reasons) ? cJSON_GetArrayItem(reasons, 0) : NULL;
+                const char *allowed[] = {"thermal_pressure", "memory_pressure", "sustained_cpu", "swap_growth", "disk_low"};
+                for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++)
+                    if (cJSON_IsString(first_reason) && !strcmp(first_reason->valuestring, allowed[i])) reason = allowed[i];
+                bounded_uint(mac, "sample_age_seconds", 45, &age);
+            }
+            char top_mem[25] = {0}, top_cpu[25] = {0};
+            unsigned int top_mem_mb = 0, top_cpu_pct = 0;
+            if (!strcmp(state, "available")) {
+                const char *keys[] = {"top_memory_processes", "top_cpu_processes"};
+                for (unsigned int i = 0; i < 2; ++i) {
+                    cJSON *items = cJSON_GetObjectItemCaseSensitive(mac, keys[i]);
+                    cJSON *first = cJSON_IsArray(items) ? cJSON_GetArrayItem(items, 0) : NULL;
+                    cJSON *name = cJSON_GetObjectItemCaseSensitive(first, "name");
+                    char *dest = i ? top_cpu : top_mem;
+                    if (cJSON_IsString(name)) {
+                        size_t n = 0;
+                        for (const char *p = name->valuestring; *p && n < 24; ++p) {
+                            char c = *p;
+                            if (!((c >= 'a' && c <= 'z') ||
+                                (c >= 'A' && c <= 'Z') ||
+                                (c >= '0' && c <= '9') || c == ' ' || c == '-' || c == '.'))
+                                break;
+                            dest[n++] = c;
+                        }
+                        dest[n] = 0;
+                    }
+                    if (first) {
+                        if (i) {
+                            float cpu_value = 0;
+                            if (bounded_float(first, "cpu", 1600, &cpu_value))
+                                top_cpu_pct = (unsigned int)(cpu_value + 0.5f);
+                        }
+                        else bounded_uint(first, "rss_mb", 1000000, &top_mem_mb);
+                    }
+                }
+            }
+            portENTER_CRITICAL(&audio_lock);
+            memcpy(snapshot.mac_top_process, top_mem, sizeof(top_mem));
+            memcpy(snapshot.mac_top_cpu_process, top_cpu, sizeof(top_cpu));
+            snapshot.mac_top_memory_mb = top_mem_mb;
+            snapshot.mac_top_cpu_pct = top_cpu_pct;
+            snapshot.mac_status = state; snapshot.mac_alert = alert;
+            snapshot.mac_thermal = thermal; snapshot.mac_pressure = pressure;
+            snapshot.mac_ram_gb = ram_ok && !strcmp(state, "available") ? ram : -1;
+            snapshot.mac_used_gb = ram_ok && !strcmp(state, "available") ? used : -1;
+            snapshot.mac_cpu_pct = !strcmp(state, "available") && cpu_ok ? (int)cpu : -1;
+            snapshot.mac_swap_gb = !strcmp(state, "available") ? swap : -1;
+            snapshot.mac_disk_free_gb = !strcmp(state, "available") ? disk : -1;
+            snapshot.mac_disk_total_gb = !strcmp(state, "available") ? disk_total : -1;
+            snapshot.mac_swap_growth_gb = !strcmp(state, "available") ? growth : -1;
+            snapshot.mac_reason = reason;
+            snapshot.mac_age_seconds = age;
             portEXIT_CRITICAL(&audio_lock);
         }
         cJSON *codex = cJSON_GetObjectItemCaseSensitive(obj, "codex");

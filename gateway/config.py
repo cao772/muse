@@ -29,11 +29,18 @@ class Settings(BaseSettings):
     cao_muse_token: SecretStr = SecretStr("")
     cao_base_url: str = "http://127.0.0.1:8080"
     cao_timeout_seconds: float = Field(default=5, ge=0.1, le=30)
+    codex_board_enabled: bool = False
+    codex_board_token: SecretStr = SecretStr("")
+    codex_board_base_url: str = ""
+    codex_board_control_enabled: bool = False
     wechat_enabled: bool = False
     wechat_scope_id: str = ""
     wechat_token: SecretStr = SecretStr("")
     wechat_base_url: str = ""
     wechat_cursor_path: str = "~/.local/share/muse/wechat-cursor.sqlite3"
+    mac_resources_enabled: bool = False
+    mac_thermal_helper: str = ""
+    mac_show_processes: bool = False
     chatgpt_enabled: bool = False
     chatgpt_auto_enabled: bool = True
     chatgpt_credentials_path: str = "~/.config/muse/chatgpt-plan.json"

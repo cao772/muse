@@ -143,6 +143,8 @@ class PersonalAgentRouter(ProjectAwareProvider):
     def __init__(self, fallback, cao, execution):
         super().__init__(fallback, cao)
         self.execution = execution
+        self.board = None
+        self.board_control_enabled = False
         self.active_id = None
         self.snapshot = None
         self.profile = "balanced"
@@ -194,6 +196,65 @@ class PersonalAgentRouter(ProjectAwareProvider):
 
     async def reply(self, text):
         action = intent(text, bool(self.active_id))
+        if self.board is not None and not re.search(r"用\s*gpt|让\s*gpt|研究|架构", text, re.I):
+            named = self.board.snapshot and any(
+                p.alias in text for p in self.board.snapshot.projects
+            )
+            if action == "profile":
+                return "多项目看板不改变已有会话模型，请在 Mac 选择模型。"
+            if action == "launch":
+                return "多项目看板暂不开放新任务启动，请在 Mac 明确选择授权项目。"
+            if text.strip(" 。！") == "取消":
+                self.board.pending = None
+                return "已取消待发送指令。"
+            if text.strip(" 。！") == "确认发送":
+                if not self.board_control_enabled:
+                    return "当前仅开放只读看板，反馈尚未启用。"
+                try:
+                    return await self.board.confirm(self.execution)
+                except CAOError:
+                    self.board.action_state = "unknown"
+                    return "反馈结果未确认，不会重放。"
+            if action == "feedback" or (
+                named and any(w in text for w in ("追加", "补充", "继续", "运行", "完善"))
+            ):
+                if not self.board_control_enabled:
+                    return "当前仅开放只读看板，反馈尚未启用。"
+                return self.board.propose(text)
+            if (
+                action == "query"
+                or (
+                    (
+                        "codex" in text.lower()
+                        or re.search(r"(?<![A-Za-z0-9])P[0-9]{1,3}", text, re.I)
+                    )
+                    and any(
+                        w in text
+                        for w in (
+                            "所有",
+                            "哪些",
+                            "多少",
+                            "列表",
+                            "总览",
+                            "在做",
+                            "在写",
+                            "最近改",
+                            "进度",
+                            "状态",
+                            "做到",
+                            "测试",
+                        )
+                    )
+                )
+                or (
+                    named
+                    and any(w in text for w in ("进度", "在做", "在写", "测试", "状态", "做到"))
+                )
+            ):
+                await self.board.refresh()
+                self.last_source = "cao"
+                return self.board.query(text)
+
         self.last_intent = action or "chat"
         self.last_route_result = "handled"
         if not action:

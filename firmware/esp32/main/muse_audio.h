@@ -6,6 +6,13 @@
 #define MUSE_AUDIO_MAX_SECONDS 5
 
 typedef struct {
+    bool available, stale, tests_known, event_known;
+    unsigned int revision, projects, registered, index, task_index, tasks, passed, failed, event_age;
+    char alias[73], title[97], state[24], progress[121], profile[16], effort[12], source[24], file[65], action[16], instruction[241];
+} muse_board_snapshot_t;
+
+typedef struct {
+    muse_board_snapshot_t board;
     muse_audio_stats_t stats;
     bool ready, failed, recording, exporting;
     bool speaker_ready, receiving, playing;
@@ -19,6 +26,13 @@ typedef struct {
     unsigned int wechat_count, wechat_sync_age;
     unsigned int wechat_mentions, wechat_tasks, wechat_blockers;
     char codex_title[25];
+    const char *mac_status, *mac_alert, *mac_thermal, *mac_pressure;
+    int mac_cpu_pct;
+    float mac_ram_gb, mac_used_gb, mac_swap_gb, mac_disk_free_gb, mac_disk_total_gb, mac_swap_growth_gb;
+    const char *mac_reason;
+    unsigned int mac_age_seconds;
+    char mac_top_process[25], mac_top_cpu_process[25];
+    unsigned int mac_top_memory_mb, mac_top_cpu_pct;
 } muse_audio_snapshot_t;
 
 void muse_audio_start(void);

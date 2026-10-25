@@ -21,9 +21,12 @@ from gateway.config import Settings
 from integrations.attention import AttentionObserver
 from integrations.cao import CAOClient, CAOError
 from integrations.chatgpt_plan import ChatGPTPlanProvider
+from integrations.codex_board import CodexBoard
 from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
 from integrations.local_tts import RUNTIME
+from integrations.mac_resources import MacResourceMonitor
+from integrations.mac_resources import unavailable_frame as mac_unavailable_frame
 from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
 from integrations.stt import MockSTT, stereo_wav_to_mono
@@ -31,6 +34,26 @@ from integrations.tts import MockTTS, TTSOutputTooLong, decode_playback_wav
 from integrations.wechat_notifications import WeChatNotifications, unavailable_frame
 from scripts.capture_audio import CaptureCancelled, CaptureTimeout, receive_pcm
 from scripts.play_audio import upload
+
+
+async def dispatch_board_action(board, action, revision, state, provider, control, publish):
+    """Acknowledge accepted screen actions without waiting for the heartbeat."""
+    if not board or state != "Ready" or revision != board.revision:
+        return
+    if action == "cancel":
+        board.pending = None
+    elif action == "confirm":
+        if not control or not isinstance(provider, PersonalAgentRouter):
+            return
+        try:
+            await board.confirm(provider.execution)
+        except CAOError:
+            board.action_state = "unknown"
+    elif action in {"next", "previous", "task"}:
+        board.navigate(action, revision)
+    else:
+        return
+    await asyncio.to_thread(publish)
 
 
 def input_wav(pcm):
@@ -305,6 +328,14 @@ async def serve(args):
         state = ["Thinking"]
         attention = {"count": None}
         attention_observer = AttentionObserver()
+        mac_resources = (
+            MacResourceMonitor(
+                thermal_helper=settings.mac_thermal_helper,
+                show_processes=settings.mac_show_processes,
+            )
+            if settings.mac_resources_enabled and not args.mock
+            else None
+        )
         wechat = (
             WeChatNotifications(
                 CAOClient(
@@ -319,6 +350,39 @@ async def serve(args):
             else None
         )
         device.device._muse_on_inbox = wechat.acknowledge if wechat else None
+        board = (
+            CodexBoard(
+                CAOClient(
+                    settings.codex_board_base_url or settings.cao_base_url,
+                    25,
+                    muse_token=settings.codex_board_token.get_secret_value(),
+                )
+            )
+            if settings.codex_board_enabled and not args.mock
+            else None
+        )
+        if isinstance(provider, PersonalAgentRouter):
+            provider.board = board
+            provider.board_control_enabled = settings.codex_board_control_enabled
+        loop = asyncio.get_running_loop()
+
+        async def handle_board_action(action, revision):
+            await dispatch_board_action(
+                board,
+                action,
+                revision,
+                state[0],
+                provider,
+                settings.codex_board_control_enabled,
+                send_state,
+            )
+
+        def board_action(action, revision):
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(handle_board_action(action, revision))
+            )
+
+        device.device._muse_on_board = board_action
 
         def send_state(value=None):
             with device.lock:
@@ -326,6 +390,9 @@ async def serve(args):
                     state[0] = value
                 frame = {"voice_state": state[0], "attention_count": attention["count"]}
                 frame["wechat"] = wechat.frame if wechat else unavailable_frame()
+                frame["mac"] = mac_resources.current() if mac_resources else mac_unavailable_frame()
+                if board:
+                    frame["board"] = board.frame()
                 execution = getattr(provider, "snapshot", None)
                 if execution:
                     frame["codex"] = {
@@ -334,7 +401,7 @@ async def serve(args):
                         "needs_user": bool(execution.get("needs_user")),
                         "title": execution.get("project_id", "Task")[:24],
                     }
-                device.device.write(json.dumps(frame).encode() + b"\n")
+                device.device.write(json.dumps(frame, ensure_ascii=False).encode() + b"\n")
 
         async def heartbeat():
             while True:
@@ -370,6 +437,22 @@ async def serve(args):
                     await wechat.refresh()
                 await asyncio.sleep(60)
 
+        async def poll_mac_resources():
+            while True:
+                if mac_resources is not None:
+                    await asyncio.to_thread(mac_resources.collect)
+                await asyncio.sleep(15)
+
+        mac_task = asyncio.create_task(poll_mac_resources())
+
+        async def poll_board():
+            while True:
+                if board:
+                    await board.refresh()
+                    await asyncio.to_thread(send_state)
+                await asyncio.sleep(10)
+
+        board_task = asyncio.create_task(poll_board())
         wechat_task = asyncio.create_task(poll_wechat())
         attention_task = asyncio.create_task(poll_attention())
         task = asyncio.create_task(heartbeat())
@@ -382,12 +465,20 @@ async def serve(args):
                 await tts.worker.start()
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
+            mac_task.cancel()
+            board_task.cancel()
             wechat_task.cancel()
             attention_task.cancel()
             task.cancel()
             poll_task.cancel()
             await asyncio.gather(
-                task, poll_task, attention_task, wechat_task, return_exceptions=True
+                task,
+                poll_task,
+                attention_task,
+                wechat_task,
+                mac_task,
+                board_task,
+                return_exceptions=True,
             )
             if wechat:
                 wechat.close()
