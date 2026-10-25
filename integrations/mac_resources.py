@@ -17,9 +17,7 @@ from time import monotonic
 
 
 def _command(args: list[str]) -> str:
-    return subprocess.run(
-        args, check=True, capture_output=True, text=True, timeout=3
-    ).stdout
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=3).stdout
 
 
 def _gib(value: float) -> float:
@@ -99,9 +97,7 @@ def _top_processes(output: str, *, order: str = "memory") -> list[dict]:
             continue
         result.append({"name": name, "rss_mb": round(rss / 1024), "cpu": round(cpu, 1)})
     primary, secondary = ("cpu", "rss_mb") if order == "cpu" else ("rss_mb", "cpu")
-    return sorted(
-        result, key=lambda row: (row[primary], row[secondary]), reverse=True
-    )[:3]
+    return sorted(result, key=lambda row: (row[primary], row[secondary]), reverse=True)[:3]
 
 
 def unavailable_frame() -> dict:
