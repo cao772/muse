@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import subprocess
+from collections import deque
 from pathlib import Path
 from time import monotonic
 
@@ -51,14 +52,14 @@ def _vm_gib(output: str, physical: int) -> float | None:
 
 
 def _cpu_pct(output: str) -> int | None:
-    found = re.search(
+    found = re.findall(
         r"CPU usage:\s*([0-9.]+)%\s*user,\s*([0-9.]+)%\s*sys,",
         output,
         re.I,
     )
     if not found:
         return None
-    result = float(found.group(1)) + float(found.group(2))
+    result = float(found[-1][0]) + float(found[-1][1])
     return int(round(min(100.0, max(0.0, result))))
 
 
@@ -126,6 +127,8 @@ class MacResourceMonitor:
         self._abnormal = 0
         self._normal = 0
         self._latched = "normal"
+        self._reasons = []
+        self._swap_samples = deque(maxlen=8)
 
     def _run(self, args: list[str]) -> str | None:
         try:
@@ -142,7 +145,7 @@ class MacResourceMonitor:
         sysctl = "/usr/sbin/sysctl"
         mem = self._run([sysctl, "-n", "hw.memsize"])
         vm = self._run(["/usr/bin/vm_stat"])
-        cpu = self._run(["/usr/bin/top", "-l", "1", "-n", "0"])
+        cpu = self._run(["/usr/bin/top", "-l", "2", "-s", "1", "-n", "0"])
         swap = self._run([sysctl, "-n", "vm.swapusage"])
         pressure = self._run([sysctl, "-n", "kern.memorystatus_vm_pressure_level"])
         disk = None
@@ -163,6 +166,8 @@ class MacResourceMonitor:
         valid = total > 0 and used is not None
 
         if not valid:
+            self._abnormal = self._normal = 0
+            self._swap_samples.clear()
             self.frame = unavailable_frame()
             self.sampled_at = monotonic()
             return self.frame
@@ -170,47 +175,65 @@ class MacResourceMonitor:
         free_gb = _gib(disk.free) if disk else None
         total_disk_gb = _gib(disk.total) if disk else None
         disk_fraction = disk.free / disk.total if disk and disk.total else None
-        mem_fraction = used / _gib(total) if total else None
-
+        now = monotonic()
+        swap_growth = None
+        if swap_used is not None:
+            self._swap_samples.append((now, swap_used))
+            while self._swap_samples and now - self._swap_samples[0][0] > 90:
+                self._swap_samples.popleft()
+            if len(self._swap_samples) >= 3 and now - self._swap_samples[0][0] >= 30:
+                swap_growth = round(swap_used - self._swap_samples[0][1], 1)
+        else:
+            self._swap_samples.clear()
+        reasons = []
+        if thermal in {"serious", "critical"}:
+            reasons.append("thermal_pressure")
+        if memory_pressure in {"warning", "critical"}:
+            reasons.append("memory_pressure")
+        if cpu_pct is not None and cpu_pct >= 90:
+            reasons.append("sustained_cpu")
+        if swap_growth is not None and swap_growth >= 0.3:
+            reasons.append("swap_growth")
+        if disk_fraction is not None and disk_fraction < 0.05:
+            reasons.append("disk_low")
         urgent = (
             thermal == "critical"
             or memory_pressure == "critical"
             or (disk_fraction is not None and disk_fraction < 0.02)
         )
-        abnormal = (
-            thermal == "serious"
-            or memory_pressure == "warning"
-            or (cpu_pct is not None and cpu_pct >= 90)
-            or (swap_used is not None and swap_used >= 8.0)
-            or (disk_fraction is not None and disk_fraction < 0.05)
-            or (mem_fraction is not None and mem_fraction >= 0.94)
-        )
+        abnormal = bool(reasons)
         # Three consecutive samples suppress transient CPU or cache spikes.
         if urgent:
             self._latched = "critical"
+            self._reasons = reasons
             self._normal = self._abnormal = 0
         elif abnormal:
             self._abnormal += 1
             self._normal = 0
             if self._abnormal >= 3:
                 self._latched = "warning"
+                self._reasons = reasons
         else:
             self._normal += 1
             self._abnormal = 0
             if self._normal >= 3:
                 self._latched = "normal"
+                self._reasons = []
 
         result = {
             "status": "available",
             "cpu_pct": cpu_pct,
             "memory_total_gb": _gib(total),
             "memory_used_gb": used,
+            "memory_available_gb": round(max(0, _gib(total) - used), 1),
             "swap_used_gb": swap_used,
+            "swap_growth_gb": swap_growth,
             "disk_free_gb": free_gb,
             "disk_total_gb": total_disk_gb,
             "pressure": memory_pressure,
             "thermal": thermal,
             "alert": self._latched,
+            "reasons": list(self._reasons),
             "sample_age_seconds": 0,
         }
         if self.show_processes:

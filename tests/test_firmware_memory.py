@@ -24,3 +24,16 @@ def test_display_memory_budget_rejects_previous_static_art_regression():
 def test_display_memory_budget_requires_real_esp32_sections():
     with pytest.raises(ValueError, match="Missing"):
         MODULE.check_sections(".bss 1024 0\n")
+
+
+def test_stack_gate_rejects_large_refresh_buffer_and_missing_evidence():
+    good = (
+        "ui.c:1:1:refresh\t128\tstatic\n"
+        "ui.c:2:1:muse_ui_start\t176\tstatic\n"
+        "main.c:1:1:app_main\t592\tstatic"
+    )
+    assert MODULE.check_stack_usage(good)["refresh"] == 128
+    with pytest.raises(ValueError, match="exceeds budget"):
+        MODULE.check_stack_usage(good.replace("128", "1536"))
+    with pytest.raises(ValueError, match="Missing"):
+        MODULE.check_stack_usage("")

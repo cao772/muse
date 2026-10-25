@@ -125,6 +125,11 @@ def receive_pcm(device, seconds: int = 5, wait_button: bool = True) -> bytes:
         state = re.search(r"VOICE_STATE (Ready|Listening|Thinking|Speaking)$", line)
         if state:
             print("Device: " + state[1], flush=True)
+        board_event = re.search(r"UI_BOARD (next|previous|task|confirm|cancel) ([0-9]{1,9})$", line)
+        if board_event:
+            on_board = getattr(device, "_muse_on_board", None)
+            if callable(on_board):
+                on_board(board_event[1], int(board_event[2]))
         if re.search(r"UI_PAGE inbox$", line):
             on_inbox = getattr(device, "_muse_on_inbox", None)
             if on_inbox:

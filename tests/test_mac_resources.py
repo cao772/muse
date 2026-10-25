@@ -115,3 +115,74 @@ def test_vm_missing_field_does_not_invent_usage():
     assert _vm_gib("no fields", 16 * 1024**3) is None
     assert _cpu_pct("broken") is None
     assert _swap_gib("broken") is None
+
+
+def test_latest_cpu_interval_and_no_warning_from_static_swap_or_memory_usage():
+    assert _cpu_pct(TOP + "CPU usage: 2.0% user, 3.0% sys, 95.0% idle") == 5
+
+    def cached(args):
+        if args[-1] == "vm.swapusage":
+            return "used = 12000.00M"
+        if "vm_stat" in args[0]:
+            return VM.replace("330000", "1000000")
+        return fake(args)
+
+    with patch("integrations.mac_resources.platform.system", return_value="Darwin"):
+        monitor = MacResourceMonitor(command=cached)
+        for _ in range(4):
+            assert monitor.collect()["alert"] == "normal"
+
+
+def test_swap_growth_requires_observation_window_and_reports_reason():
+    current = {"time": 0, "swap": 0}
+
+    def growing(args):
+        if args[-1] == "vm.swapusage":
+            return f"used = {current['swap']}G"
+        return fake(args)
+
+    with (
+        patch("integrations.mac_resources.platform.system", return_value="Darwin"),
+        patch("integrations.mac_resources.monotonic", side_effect=lambda: current["time"]),
+    ):
+        monitor = MacResourceMonitor(command=growing)
+        for n in range(5):
+            current.update(time=n * 15, swap=n * 0.2)
+            result = monitor.collect()
+            if n < 2:
+                assert result["swap_growth_gb"] is None
+        assert result["alert"] == "warning"
+        assert result["reasons"] == ["swap_growth"]
+
+
+def test_failed_sample_breaks_consecutive_warning_streak():
+    def hot(args):
+        if "top" in args[0]:
+            return "CPU usage: 99.0% user, 0.0% sys, 1.0% idle"
+        return fake(args)
+
+    with patch("integrations.mac_resources.platform.system", return_value="Darwin"):
+        monitor = MacResourceMonitor(command=hot)
+        monitor.collect()
+        monitor.collect()
+        monitor.command = lambda args: ""
+        assert monitor.collect()["status"] == "unavailable"
+        monitor.command = hot
+        assert monitor.collect()["alert"] == "normal"
+
+
+def test_thermal_helper_critical_reason_and_untrusted_output(tmp_path):
+    helper = tmp_path / "thermal"
+    helper.write_text("test helper fixture")
+    helper.chmod(0o700)
+
+    def command(args):
+        return "critical" if args == [str(helper)] else fake(args)
+
+    with patch("integrations.mac_resources.platform.system", return_value="Darwin"):
+        monitor = MacResourceMonitor(command=command, thermal_helper=str(helper))
+        result = monitor.collect()
+        assert result["alert"] == "critical"
+        assert result["reasons"] == ["thermal_pressure"]
+        monitor.command = lambda args: "85C" if args == [str(helper)] else fake(args)
+        assert monitor.collect()["thermal"] == "unknown"
