@@ -23,6 +23,7 @@ from integrations.cao import CAOClient, CAOError
 from integrations.chatgpt_plan import ChatGPTPlanProvider
 from integrations.execution_agent import ExecutionClient, PersonalAgentRouter
 from integrations.llm import CompatibleProvider, MockProvider
+from integrations.mac_resources import MacResourceMonitor, unavailable_frame as mac_unavailable_frame
 from integrations.local_tts import RUNTIME
 from integrations.personal_provider import PersonalAgentProvider
 from integrations.resident import ResidentModel
@@ -305,6 +306,14 @@ async def serve(args):
         state = ["Thinking"]
         attention = {"count": None}
         attention_observer = AttentionObserver()
+        mac_resources = (
+            MacResourceMonitor(
+                thermal_helper=settings.mac_thermal_helper,
+                show_processes=settings.mac_show_processes,
+            )
+            if settings.mac_resources_enabled and not args.mock
+            else None
+        )
         wechat = (
             WeChatNotifications(
                 CAOClient(
@@ -326,6 +335,7 @@ async def serve(args):
                     state[0] = value
                 frame = {"voice_state": state[0], "attention_count": attention["count"]}
                 frame["wechat"] = wechat.frame if wechat else unavailable_frame()
+                frame["mac"] = mac_resources.current() if mac_resources else mac_unavailable_frame()
                 execution = getattr(provider, "snapshot", None)
                 if execution:
                     frame["codex"] = {
@@ -370,6 +380,13 @@ async def serve(args):
                     await wechat.refresh()
                 await asyncio.sleep(60)
 
+        async def poll_mac_resources():
+            while True:
+                if mac_resources is not None:
+                    await asyncio.to_thread(mac_resources.collect)
+                await asyncio.sleep(15)
+
+        mac_task = asyncio.create_task(poll_mac_resources())
         wechat_task = asyncio.create_task(poll_wechat())
         attention_task = asyncio.create_task(poll_attention())
         task = asyncio.create_task(heartbeat())
@@ -382,12 +399,14 @@ async def serve(args):
                 await tts.worker.start()
             await conversation(args, device, stt, provider, tts, play, settings, send_state)
         finally:
+            mac_task.cancel()
             wechat_task.cancel()
             attention_task.cancel()
             task.cancel()
             poll_task.cancel()
             await asyncio.gather(
-                task, poll_task, attention_task, wechat_task, return_exceptions=True
+                task, poll_task, attention_task, wechat_task, mac_task,
+                return_exceptions=True
             )
             if wechat:
                 wechat.close()
