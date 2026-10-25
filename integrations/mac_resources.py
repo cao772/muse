@@ -86,7 +86,7 @@ def _thermal(helper_path: str, command=_command) -> str:
     return value if value in {"nominal", "fair", "serious", "critical"} else "unknown"
 
 
-def _top_processes(output: str) -> list[dict]:
+def _top_processes(output: str, *, order: str = "memory") -> list[dict]:
     result = []
     for line in output.splitlines():
         parts = line.strip().split(maxsplit=2)
@@ -102,7 +102,12 @@ def _top_processes(output: str) -> list[dict]:
         if not re.fullmatch(r"[\w .+()-]{1,24}", name):
             continue
         result.append({"name": name, "rss_mb": round(rss / 1024), "cpu": round(cpu, 1)})
-    return sorted(result, key=lambda row: (row["rss_mb"], row["cpu"]), reverse=True)[:3]
+    metric = (
+        (lambda row: (row["cpu"], row["rss_mb"]))
+        if order == "cpu"
+        else (lambda row: (row["rss_mb"], row["cpu"]))
+    )
+    return sorted(result, key=metric, reverse=True)[:3]
 
 
 def unavailable_frame() -> dict:
@@ -221,6 +226,7 @@ class MacResourceMonitor:
         if self.show_processes:
             ps = self._run(["/bin/ps", "-A", "-o", "rss=", "-o", "%cpu=", "-o", "comm="])
             result["top_memory_processes"] = _top_processes(ps or "")
+            result["top_cpu_processes"] = _top_processes(ps or "", order="cpu")
 
         self.frame = result
         self.sampled_at = monotonic()
